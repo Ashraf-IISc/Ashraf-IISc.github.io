@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ayan Ashraf | IISc</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --accent-color: #00ff9d; /* Matrix/Terminal Green */
+            --link-color: #4da6ff;
+        }
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        header {
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+        }
+        h1 { margin: 0; font-size: 2.5rem; }
+        h2 { color: var(--accent-color); margin-top: 2rem; border-bottom: 1px solid #333; }
+        .subtitle { color: #888; font-style: italic; }
+        
+        a { color: var(--link-color); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        
+        .project-card {
+            border: 1px solid #333;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            background: #252525;
+        }
+        .code-block {
+            background: #000;
+            padding: 10px;
+            border-left: 3px solid var(--accent-color);
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+        
+        /* New Button Style */
+        .btn {
+            display: inline-block;
+            padding: 8px 15px;
+            margin-top: 15px;
+            background-color: var(--accent-color);
+            color: #000;
+            text-decoration: none;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+        .btn:hover {
+            background-color: #00cc7d;
+            text-decoration: none;
+        }
+        /* --- PRINT/PDF STYLES --- */
+        @media print {
+            body {
+                background-color: white;
+                color: black;
+                max-width: 100%;
+                margin: 0;
+                padding: 1rem;
+                font-size: 11pt;
+            }
+            header {
+                border-bottom: 2px solid black;
+            }
+            h2 {
+                color: black;
+                border-bottom: 1px solid #ccc;
+            }
+            .subtitle, a {
+                color: #333;
+            }
+            .project-card {
+                border: 1px solid #ccc;
+                background: white;
+                page-break-inside: avoid; /* Prevents a project from being cut in half across pages */
+            }
+            .code-block {
+                background: #f0f0f0;
+                border-left: 3px solid black;
+            }
+            .btn {
+                display: none; /* Hides the download button on the PDF */
+            }
+            footer {
+                display: none; /* Hides the footer on the PDF */
+            }
+        }	
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Ayan Ashraf</h1>
+    <p class="subtitle">4th-Semester B.Sc. Student (Physics) @ Indian Institute of Science (IISc)</p>
+    <p>Student ID: 25301 | <a href="mailto:email@iisc.ac.in">Contact</a></p>
+    
+    <a href="Ayan_Ashraf_CV.pdf" download="Ayan_Ashraf_CV.pdf" class="btn">Download CV (PDF)</a>
+</header>
+<section>
+    <h2># About Me</h2>
+    <p>
+        I am an undergraduate physics student with a strong interest in <strong>astronomy</strong>, 
+        <strong>semiconductor physics</strong>, and <strong>computational systems</strong>. 
+    </p>
+    <p>
+        I enjoy bridging the gap between theoretical physics and applied computer science, 
+        using programming to automate complex lab data analysis and exploring system security 
+        in Linux environments.
+    </p>
+</section>
+
+<section>
+    <h2># Lab Work & Academic Projects</h2>
+    
+    <div class="project-card">
+        <h3><strong>> Experimental Physics: Electron Diffraction</strong></h3>
+        <p>Conducted experiments analyzing graphite diffraction patterns to determine lattice constants and understand wave-particle duality.</p>
+        <div class="code-block">Data compiled and formatted via Python (NumPy/Matplotlib) and LaTeX (TeXstudio/MiKTeX).</div>
+    </div>
+
+    <div class="project-card">
+        <h3><strong>> Experimental Physics: Ferromagnetic Hysteresis</strong></h3>
+        <p>Measured and analyzed the magnetic properties of ferromagnetic materials to plot and interpret hysteresis loops.</p>
+    </div>
+
+    <div class="project-card">
+        <h3><strong>> Local Network & Security Exploration</strong></h3>
+        <p>Configured WSL Ubuntu environments, implemented secure SSH key-based authentication, and currently maintaining a pruned XMR node for network privacy study.</p>
+    </div>
+</section>
+
+<section>
+    <h2># Technical Skills & Tools</h2>
+    <ul>
+        <li><strong>Programming:</strong> Python, C</li>
+        <li><strong>Typesetting:</strong> LaTeX (Specialized in academic report formatting)</li>
+        <li><strong>Systems & Tools:</strong> Linux/WSL, Git, Command-line customization (Fastfetch/Neofetch)</li>
+        <li><strong>Other Interests:</strong> Cryptography, Sustainable Design (Biomimicry), Learning French</li>
+    </ul>
+</section>
+
+<footer>
+    <p style="margin-top: 4rem; font-size: 0.8rem; color: #555;">
+        Hosted locally on Windows via Python HTTP Server.
+    </p>
+</footer>
+
+</body>
+</html>
