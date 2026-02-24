@@ -41,9 +41,9 @@
                     {% if not d %}<div class="day" style="visibility:hidden"></div>
                     {% else %}
                     <div class="day {{ 'is-today' if d.is_today }} {{ 'has-blog' if d.has_blog }}"
-                         data-date="{{ d.date }}" data-tags="{{ d.tags }}" data-snapshot="{{ d.snapshot | e }}" 
-                         data-blog="{{ d.has_blog }}" data-locked="{{ '1' if d.is_locked else '0' }}" 
-                         data-status="{{ d.status }}" onclick="openDay(this)">
+                        data-date="{{ d.date | e }}" data-tags="{{ d.tags | e }}" data-snapshot="{{ d.snapshot | e }}" 
+                        data-blog="{{ d.has_blog }}" data-locked="{{ '1' if d.is_locked else '0' }}" 
+                        data-status="{{ d.status | e }}">
                          <div class="cell-paper"></div>
                          <span class="cell-content">{{ d.day }}</span>
                     </div>
@@ -64,7 +64,7 @@
                 <div class="tag-group" id="tag-container"></div>
 
                 <form id="f-add-tag" class="add-tag-box">
-                    <input type="text" id="new-tag-name" placeholder="New Priority" required>
+                    <input type="text" id="new-tag-name" placeholder="New Priority (max 60 chars)" maxlength="60" required>
                     <button type="submit">+ Add</button>
                 </form>
 

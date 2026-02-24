@@ -12,6 +12,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 TRACKER_START_DATE = '2026-02-22'
 HEX_COLOR_RE = re.compile(r'^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$')
+MAX_TAG_NAME_LEN = 60
 
 def normalize_hex_color(value):
     if not value:
@@ -23,6 +24,14 @@ def normalize_hex_color(value):
     if len(cleaned) == 3:
         cleaned = ''.join([ch * 2 for ch in cleaned])
     return f"#{cleaned.upper()}"
+
+def sanitize_tag_name(value):
+    if value is None:
+        return None
+    name = value.replace(',', '').strip()
+    if not name or len(name) > MAX_TAG_NAME_LEN or '\x00' in name:
+        return None
+    return name
 
 def get_lock_status(date_str, today_str):
     if date_str < TRACKER_START_DATE:
@@ -240,8 +249,9 @@ def update_footnote():
 @app.route('/add_tag', methods=['POST'])
 def add_tag():
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
-    user_id, name = session['user_id'], request.form['name'].replace(',', '').strip()
-    if not name: return {"error": "Name required"}, 400
+    user_id = session['user_id']
+    name = sanitize_tag_name(request.form.get('name', ''))
+    if not name: return {"error": f"Name required (1-{MAX_TAG_NAME_LEN} chars)."}, 400
     
     conn = get_db_connection()
     min_prio = (conn.execute('SELECT MIN(priority) as m FROM tags WHERE user_id = ? AND active=1', (user_id,)).fetchone()['m'] or 100) - 1
@@ -255,28 +265,46 @@ def add_tag():
 @app.route('/update_tag_color', methods=['POST'])
 def update_tag_color():
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
+    tag_name = sanitize_tag_name(request.form.get('name', ''))
+    if not tag_name:
+        return {"error": "Invalid tag name."}, 400
+
     normalized_color = normalize_hex_color(request.form.get('color', ''))
     if not normalized_color:
         return {"error": "Invalid color format. Use #RRGGBB or #RGB."}, 400
 
     conn = get_db_connection()
-    conn.execute('UPDATE tags SET color = ? WHERE user_id = ? AND name = ?', (normalized_color, session['user_id'], request.form['name']))
+    conn.execute('UPDATE tags SET color = ? WHERE user_id = ? AND name = ?', (normalized_color, session['user_id'], tag_name))
     conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
     return {"status": "success", "tags_data": tags_data}, 200
 
 @app.route('/reorder_tags', methods=['POST'])
 def reorder_tags():
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
-    conn, max_prio = get_db_connection(), len(request.json.get('tags', []))
-    for i, name in enumerate(request.json.get('tags', [])): conn.execute('UPDATE tags SET priority = ? WHERE user_id = ? AND name = ?', (max_prio - i, session['user_id'], name))
+    raw_tags = request.json.get('tags', []) if request.is_json else []
+    sanitized_tags = []
+    seen = set()
+    for raw_name in raw_tags:
+        safe_name = sanitize_tag_name(raw_name)
+        if safe_name and safe_name not in seen:
+            sanitized_tags.append(safe_name)
+            seen.add(safe_name)
+
+    conn, max_prio = get_db_connection(), len(sanitized_tags)
+    for i, name in enumerate(sanitized_tags):
+        conn.execute('UPDATE tags SET priority = ? WHERE user_id = ? AND name = ?', (max_prio - i, session['user_id'], name))
     conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
     return {"status": "success", "tags_data": tags_data}
 
 @app.route('/delete_tag', methods=['POST'])
 def delete_tag():
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
+    tag_name = sanitize_tag_name(request.form.get('name', ''))
+    if not tag_name:
+        return {"error": "Invalid tag name."}, 400
+
     conn = get_db_connection()
-    conn.execute('UPDATE tags SET active=0 WHERE user_id = ? AND name = ?', (session['user_id'], request.form['name']))
+    conn.execute('UPDATE tags SET active=0 WHERE user_id = ? AND name = ?', (session['user_id'], tag_name))
     conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
     return {"status": "success", "tags_data": tags_data}, 200
 

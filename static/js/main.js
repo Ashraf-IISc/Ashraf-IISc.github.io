@@ -5,6 +5,7 @@ let activeEl = null;
 let sortableInstance = null;
 let allExpanded = false;
 let activeTagForColor = null;
+const TAG_NAME_MAX_LEN = 60;
 
 function debounce(fn, wait = 150) {
     let timeoutId;
@@ -149,16 +150,47 @@ function renderTags() {
 
     sortedTags.forEach(tagName => {
         const tag = ENV.tagsData[tagName];
-        const pill = document.createElement('div'); pill.className = 'tag-pill'; pill.dataset.tagName = tagName;
-        pill.innerHTML = `
-            <span class="drag-handle">≡</span>
-            <label>
-                <input type="checkbox" name="tags" value="${tagName}" onchange="togglePill(this)" ${isLocked ? 'disabled' : ''}> 
-                <span title="${tagName}">${tagName}</span>
-                <div class="pill-color-bar" style="background-color: ${tag.color};" onclick="openColorPicker(event, '${tagName}')" title="Tap to change color"></div>
-            </label>
-            <button type="button" class="tag-del-btn" onclick="deleteTag('${tagName}')" style="display: ${isLocked ? 'none' : 'block'}">&times;</button>
-        `;
+        const pill = document.createElement('div');
+        pill.className = 'tag-pill';
+        pill.dataset.tagName = tagName;
+
+        const dragHandle = document.createElement('span');
+        dragHandle.className = 'drag-handle';
+        dragHandle.textContent = '≡';
+
+        const label = document.createElement('label');
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.name = 'tags';
+        checkbox.value = tagName;
+        checkbox.disabled = isLocked;
+        checkbox.addEventListener('change', () => togglePill(checkbox));
+
+        const nameSpan = document.createElement('span');
+        nameSpan.title = tagName;
+        nameSpan.textContent = tagName;
+
+        const colorBar = document.createElement('div');
+        colorBar.className = 'pill-color-bar';
+        colorBar.style.backgroundColor = tag.color;
+        colorBar.title = 'Tap to change color';
+        colorBar.addEventListener('click', (event) => openColorPicker(event, tagName));
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'tag-del-btn';
+        deleteButton.textContent = '×';
+        deleteButton.style.display = isLocked ? 'none' : 'block';
+        deleteButton.addEventListener('click', () => deleteTag(tagName));
+
+        label.appendChild(checkbox);
+        label.appendChild(nameSpan);
+        label.appendChild(colorBar);
+
+        pill.appendChild(dragHandle);
+        pill.appendChild(label);
+        pill.appendChild(deleteButton);
         container.appendChild(pill);
     });
     
@@ -208,6 +240,15 @@ function applyColors() {
 document.addEventListener('DOMContentLoaded', () => {
     renderTags(); applyColors();
 
+    const calendarEl = document.getElementById('calendar');
+    if (calendarEl) {
+        calendarEl.addEventListener('click', (e) => {
+            const dayEl = e.target.closest('.day[data-date]');
+            if (!dayEl || dayEl.style.visibility === 'hidden') return;
+            openDay(dayEl);
+        });
+    }
+
     const searchInput = document.getElementById('search-box');
     if (searchInput) {
         searchInput.addEventListener('input', debounce(filterEntries, 120));
@@ -223,7 +264,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('f-add-tag').onsubmit = function(e) {
-        e.preventDefault(); const fd = new FormData(); fd.append('name', document.getElementById('new-tag-name').value);
+        e.preventDefault();
+        const inputEl = document.getElementById('new-tag-name');
+        const normalized = inputEl.value.replace(/,/g, '').trim();
+
+        if (!normalized) {
+            alert('Tag name is required.');
+            inputEl.focus();
+            return;
+        }
+
+        if (normalized.length > TAG_NAME_MAX_LEN) {
+            alert(`Tag name must be ${TAG_NAME_MAX_LEN} characters or fewer.`);
+            inputEl.focus();
+            return;
+        }
+
+        if (normalized.includes('\u0000')) {
+            alert('Tag name contains invalid characters.');
+            inputEl.focus();
+            return;
+        }
+
+        const fd = new FormData();
+        fd.append('name', normalized);
         fetch('/add_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('new-tag-name').value = ''; } else { alert(data.error); }
         });
@@ -283,7 +347,7 @@ window.loadMonth = function(year, month) {
                     let safeTags = escapeHtml(d.tags);
                     let safeStatus = escapeHtml(d.status);
                     let safeDay = escapeHtml(String(d.day));
-                    html += `<div class="${classes}" data-date="${safeDate}" data-tags="${safeTags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${safeStatus}" onclick="openDay(this)"><div class="cell-paper"></div><span class="cell-content">${safeDay}</span></div>`;
+                    html += `<div class="${classes}" data-date="${safeDate}" data-tags="${safeTags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${safeStatus}"><div class="cell-paper"></div><span class="cell-content">${safeDay}</span></div>`;
                 }
             });
         });
