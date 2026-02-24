@@ -43,7 +43,7 @@
                     <div class="day {{ 'is-today' if d.is_today }} {{ 'has-blog' if d.has_blog }}"
                         data-date="{{ d.date | e }}" data-tags="{{ d.tags | e }}" data-snapshot="{{ d.snapshot | e }}" 
                         data-blog="{{ d.has_blog }}" data-locked="{{ '1' if d.is_locked else '0' }}" 
-                        data-status="{{ d.status | e }}">
+                        data-status="{{ d.status | e }}" onclick="openDay(this)">
                          <div class="cell-paper"></div>
                          <span class="cell-content">{{ d.day }}</span>
                     </div>

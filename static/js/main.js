@@ -1,4 +1,4 @@
-let ENV = window.GRIMOIRE_ENV;
+let ENV = window.GRIMOIRE_ENV || {};
 let mde = null; 
 let fnMde = null;
 let activeEl = null;
@@ -178,11 +178,12 @@ window.closeEditor = function() { document.getElementById('editor').style.displa
 
 function renderTags() {
     const container = document.getElementById('tag-container'); container.innerHTML = '';
-    const sortedTags = Object.keys(ENV.tagsData).sort((a, b) => ENV.tagsData[b].priority - ENV.tagsData[a].priority);
+    const tagsData = ENV.tagsData || {};
+    const sortedTags = Object.keys(tagsData).sort((a, b) => tagsData[b].priority - tagsData[a].priority);
     const isLocked = activeEl && activeEl.dataset.locked === '1';
 
     sortedTags.forEach(tagName => {
-        const tag = ENV.tagsData[tagName];
+        const tag = tagsData[tagName];
         const pill = document.createElement('div');
         pill.className = 'tag-pill';
         pill.dataset.tagName = tagName;
@@ -235,11 +236,12 @@ function renderTags() {
 
 function applyColors() {
     const etchedPattern = `repeating-linear-gradient(45deg, rgba(26, 15, 10, 0.05) 0px, rgba(26, 15, 10, 0.05) 2px, transparent 2px, transparent 8px)`;
+    const currentTagsData = ENV.tagsData || {};
     document.querySelectorAll('.day').forEach(dayDiv => {
         const dayDate = dayDiv.getAttribute('data-date'); const tagsStr = dayDiv.getAttribute('data-tags'); const paper = dayDiv.querySelector('.cell-paper');
         if (!paper) return;
         
-        let sizeUniverse = ENV.tagsData; 
+        let sizeUniverse = currentTagsData; 
         if (dayDate < ENV.todayStr) {
             let snapshotStr = dayDiv.getAttribute('data-snapshot');
             if (snapshotStr && snapshotStr !== '{}' && snapshotStr !== 'None') { try { let parsed = JSON.parse(snapshotStr); if (Object.keys(parsed).length > 0) sizeUniverse = parsed; } catch(e) {} }
@@ -260,7 +262,7 @@ function applyColors() {
 
         tags.forEach(t => {
             let size = tagSizes[t] || 0; let start = currentPct; let end = currentPct + size;
-            let renderColor = (ENV.tagsData[t] && ENV.tagsData[t].color) ? ENV.tagsData[t].color : sizeUniverse[t].color;
+            let renderColor = (currentTagsData[t] && currentTagsData[t].color) ? currentTagsData[t].color : sizeUniverse[t].color;
             gradientStops.push(`${renderColor} ${start}%`); gradientStops.push(`${renderColor} ${end}%`);
             currentPct += size;
         });
@@ -271,6 +273,11 @@ function applyColors() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    ENV = window.GRIMOIRE_ENV || ENV || {};
+    if (!ENV.tagsData) ENV.tagsData = {};
+    if (!ENV.logsData) ENV.logsData = {};
+    if (!ENV.todayStr) ENV.todayStr = new Date().toISOString().slice(0, 10);
+
     renderTags(); applyColors();
 
     const calendarEl = document.getElementById('calendar');
@@ -380,7 +387,7 @@ window.loadMonth = function(year, month) {
                     let safeTags = escapeHtml(d.tags);
                     let safeStatus = escapeHtml(d.status);
                     let safeDay = escapeHtml(String(d.day));
-                    html += `<div class="${classes}" data-date="${safeDate}" data-tags="${safeTags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${safeStatus}"><div class="cell-paper"></div><span class="cell-content">${safeDay}</span></div>`;
+                    html += `<div class="${classes}" data-date="${safeDate}" data-tags="${safeTags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${safeStatus}" onclick="openDay(this)"><div class="cell-paper"></div><span class="cell-content">${safeDay}</span></div>`;
                 }
             });
         });
