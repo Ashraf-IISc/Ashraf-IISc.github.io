@@ -7,12 +7,42 @@ import calendar
 import json
 import colorsys
 import re
+import secrets
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-only-secret-key-change-me')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
 TRACKER_START_DATE = '2026-02-22'
 HEX_COLOR_RE = re.compile(r'^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$')
 MAX_TAG_NAME_LEN = 60
+
+def get_csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': get_csrf_token}
+
+@app.before_request
+def csrf_protect():
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return None
+
+    session_token = session.get('_csrf_token')
+    req_token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+    if not req_token and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        req_token = payload.get('csrf_token')
+
+    if not session_token or not req_token or not secrets.compare_digest(session_token, req_token):
+        return {"error": "Invalid CSRF token."}, 400
+    return None
 
 def normalize_hex_color(value):
     if not value:
@@ -309,4 +339,4 @@ def delete_tag():
     return {"status": "success", "tags_data": tags_data}, 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, port=5000)
+    app.run(host='0.0.0.0', debug=os.environ.get('FLASK_DEBUG', '0') == '1', port=5000)

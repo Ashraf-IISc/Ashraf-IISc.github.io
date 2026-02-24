@@ -23,6 +23,7 @@
             <h1>Enter The Grimoire</h1>
             {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
             <form class="auth-form" method="POST" action="/login">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="username" placeholder="Username" required>
                 <input type="password" name="password" placeholder="Password" required>
                 <button type="submit">Unlock</button>
@@ -33,6 +34,7 @@
             <h1>Forge New Profile</h1>
             {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
             <form class="auth-form" method="POST" action="/register">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="username" placeholder="Choose a Username" required>
                 <input type="password" name="password" placeholder="Choose a Password" required>
                 <button type="submit">Forge</button>
@@ -43,6 +45,7 @@
             <h1>Alter Credentials</h1>
             {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
             <form class="auth-form" method="POST" action="/change_credentials">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="old_username" placeholder="Current Username" required>
                 <input type="password" name="old_password" placeholder="Current Password" required>
                 <hr style="border:0; border-top:1px dashed var(--parchment); width:100%;">

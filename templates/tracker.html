@@ -64,11 +64,13 @@
                 <div class="tag-group" id="tag-container"></div>
 
                 <form id="f-add-tag" class="add-tag-box">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="text" id="new-tag-name" placeholder="New Priority (max 60 chars)" maxlength="60" required>
                     <button type="submit">+ Add</button>
                 </form>
 
                 <form id="f-update">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="date" id="i-date">
                     <label style="font-weight: bold; font-size: 1.2rem; display: block; margin-bottom: 10px;">Journal Entry:</label>
                     <textarea id="i-text"></textarea>
@@ -110,6 +112,7 @@
                 <div style="font-style: italic; color: #666; margin-bottom: 10px;" id="fn-display-date"></div>
                 
                 <form id="f-footnote">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" id="fn-date">
                     <textarea id="fn-text"></textarea>
                     <button type="submit" class="btn-seal" style="margin-top: 15px;">Append to Chronicles</button>
@@ -124,6 +127,7 @@
             'todayStr': today_str,
             'tagsData': tags_data,
             'logsData': logs_data,
+            'csrfToken': csrf_token(),
             'prevYear': prev_year,
             'prevMonth': prev_month,
             'nextYear': next_year,

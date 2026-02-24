@@ -7,6 +7,16 @@ let allExpanded = false;
 let activeTagForColor = null;
 const TAG_NAME_MAX_LEN = 60;
 
+function csrfFetch(url, options = {}) {
+    const nextOptions = { ...options };
+    const headers = new Headers(options.headers || {});
+    if (ENV && ENV.csrfToken) {
+        headers.set('X-CSRF-Token', ENV.csrfToken);
+    }
+    nextOptions.headers = headers;
+    return fetch(url, nextOptions);
+}
+
 function debounce(fn, wait = 150) {
     let timeoutId;
     return (...args) => {
@@ -18,6 +28,29 @@ function debounce(fn, wait = 150) {
 function escapeHtml(text) {
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     return String(text).replace(/[&<>"']/g, (m) => map[m]);
+}
+
+function sanitizeHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    template.content.querySelectorAll('script, iframe, object, embed, link, meta, style').forEach((node) => node.remove());
+
+    template.content.querySelectorAll('*').forEach((node) => {
+        Array.from(node.attributes).forEach((attr) => {
+            const attrName = attr.name.toLowerCase();
+            const attrValue = String(attr.value || '').trim().toLowerCase();
+            if (attrName.startsWith('on')) {
+                node.removeAttribute(attr.name);
+                return;
+            }
+            if ((attrName === 'href' || attrName === 'src' || attrName === 'xlink:href') && attrValue.startsWith('javascript:')) {
+                node.removeAttribute(attr.name);
+            }
+        });
+    });
+
+    return template.innerHTML;
 }
 
 window.openColorPicker = function(e, tagName) {
@@ -127,7 +160,7 @@ window.selectHexColor = function() {
 
 function selectColor(colorHex) {
     const fd = new FormData(); fd.append('name', activeTagForColor); fd.append('color', colorHex);
-    fetch('/update_tag_color', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+    csrfFetch('/update_tag_color', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
         if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('color-picker').style.display = 'none'; }
     });
 }
@@ -258,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
         animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost',
         onEnd: function () {
             let newOrder = []; document.querySelectorAll('.tag-pill').forEach(pill => { newOrder.push(pill.dataset.tagName); });
-            fetch('/reorder_tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: newOrder }) })
+            csrfFetch('/reorder_tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: newOrder }) })
             .then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
         }
     });
@@ -288,7 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const fd = new FormData();
         fd.append('name', normalized);
-        fetch('/add_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+        csrfFetch('/add_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('new-tag-name').value = ''; } else { alert(data.error); }
         });
     };
@@ -299,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fd.set('blog_text', markdownText); if (markdownText.length > 0) { fd.set('has_blog', '1'); }
         fd.set('tags', Array.from(document.querySelectorAll('input[name="tags"]:checked')).map(cb => cb.value).join(','));
 
-        fetch('/update', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+        csrfFetch('/update', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') {
                 activeEl.className = `day ${activeEl.classList.contains('is-today')?'is-today':''} ${markdownText.length > 0 ? 'has-blog' : ''}`;
                 activeEl.dataset.tags = data.new_tags; activeEl.dataset.blog = data.has_blog; activeEl.dataset.snapshot = data.snapshot; 
@@ -321,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fd.append('date', targetDate);
         fd.append('footnotes', text);
 
-        fetch('/update_footnote', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+        csrfFetch('/update_footnote', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') {
                 if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
                 ENV.logsData[targetDate].footnotes = text;
@@ -334,7 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.loadMonth = function(year, month) {
     closeEditor(); 
-    fetch(`/api/calendar?year=${year}&month=${month}`).then(r => r.json()).then(data => {
+    csrfFetch(`/api/calendar?year=${year}&month=${month}`).then(r => r.json()).then(data => {
         document.getElementById('month-title').innerText = `${data.month_name} ${data.year}`;
         ENV.prevYear = data.prev_year; ENV.prevMonth = data.prev_month; ENV.nextYear = data.next_year; ENV.nextMonth = data.next_month;
         let html = '';
@@ -375,7 +408,7 @@ window.openDay = function(el) {
 window.deleteTag = function(tagName) {
     if(!confirm(`Archive '${tagName}'? Historical entries keep their color, but it will be removed from the menu.`)) return;
     const fd = new FormData(); fd.append('name', tagName);
-    fetch('/delete_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
+    csrfFetch('/delete_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
 };
 
 window.renderJournal = function() {
@@ -416,14 +449,14 @@ window.renderJournal = function() {
             </div>
             <button class="entry-title" onclick="toggleEntry(this)">${safeTitle}</button>
             <div class="entry-content" style="display: ${allExpanded ? 'block' : 'none'}; opacity: ${allExpanded ? '1' : '0'}; transition: opacity 0.3s;">
-                <div class="main-text">${marked.parse(remainingText, { breaks: true })}</div>
+                <div class="main-text">${sanitizeHtml(marked.parse(remainingText, { breaks: true }))}</div>
         `;
         
         if (rawFootnotes.trim() !== '') {
             html += `
                 <div class="footnote-block">
                     <div class="footnote-block-title">Chronicle Addendum</div>
-                    ${marked.parse(rawFootnotes, { breaks: true })}
+                    ${sanitizeHtml(marked.parse(rawFootnotes, { breaks: true }))}
                 </div>
             `;
         }
