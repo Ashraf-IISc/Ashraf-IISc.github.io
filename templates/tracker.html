@@ -119,16 +119,20 @@
 
     </div>
 
+    <script id="grimoire-env" type="application/json">
+        {{ {
+            'todayStr': today_str,
+            'tagsData': tags_data,
+            'logsData': logs_data,
+            'prevYear': prev_year,
+            'prevMonth': prev_month,
+            'nextYear': next_year,
+            'nextMonth': next_month
+        } | tojson | safe }}
+    </script>
     <script>
-        window.GRIMOIRE_ENV = {
-            todayStr: "{{ today_str }}",
-            tagsData: {{ tags_data | tojson | safe }},
-            logsData: {{ logs_data | tojson | safe }},
-            prevYear: {{ prev_year }},
-            prevMonth: {{ prev_month }},
-            nextYear: {{ next_year }},
-            nextMonth: {{ next_month }}
-        };
+        const envScript = document.getElementById('grimoire-env');
+        window.GRIMOIRE_ENV = envScript ? JSON.parse(envScript.textContent) : {};
     </script>
 </body>
 </html>
