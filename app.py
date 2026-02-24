@@ -195,7 +195,8 @@ def api_calendar():
                 log = log_dict.get(date_str, {'tags': '', 'has_blog': 0, 'tags_snapshot': '{}'})
                 is_today = (date_str == today_str)
 
-    if date != today_str: return {"error": "Past entries are strictly sealed. You can still add a footnote to this date."}, 403
+                # Restored the missing lock logic so 'locked' and 'status' are defined
+                locked, status = get_lock_status(date_str, today_str)
 
                 week_data.append({'day': d, 'date': date_str, 'tags': log['tags'], 'has_blog': log['has_blog'], 'is_locked': locked, 'is_today': is_today, 'status': status, 'snapshot': log.get('tags_snapshot', '{}')})
         cal_data.append(week_data)
