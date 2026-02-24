@@ -1,63 +1,134 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Activity Tracker</title>
-    <style>
-        body { font-family: monospace; background-color: #0d1117; color: #c9d1d9; padding: 2rem; }
-        .grid { display: flex; flex-wrap: wrap; gap: 5px; max-width: 600px; margin-top: 20px; }
-        .day { width: 30px; height: 30px; border-radius: 4px; cursor: pointer; display: flex; justify-content: center; align-items: center; }
-        
-        /* GitHub-style Heatmap Colors based on score (0-6) */
-        .score-0 { background-color: #161b22; }
-        .score-1 { background-color: #0e4429; }
-        .score-2 { background-color: #006d32; }
-        .score-3 { background-color: #26a641; }
-        .score-4 { background-color: #39d353; }
-        .score-5 { background-color: #46f866; }
-        .score-6 { background-color: #afffbd; }
-
-        .has-blog::after { content: "★"; color: white; font-size: 10px; }
-        
-        /* Popup Modal */
-        #modal { display: none; position: fixed; top: 20%; left: 30%; background: #252525; padding: 20px; border: 1px solid #00ff9d; }
-        textarea { width: 100%; height: 100px; background: #000; color: #fff; border: 1px solid #555; }
-        button { background: #00ff9d; color: #000; padding: 5px 10px; border: none; cursor: pointer; margin-top: 10px; }
-    </style>
+    <title>The Grimoire</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/easymde.min.css') }}">
+    <script src="{{ url_for('static', filename='js/Sortable.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/easymde.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/marked.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
 </head>
 <body>
-    <h2>Priority Heatmap (Last 30 Days)</h2>
-    
-    <div class="grid">
-        {% for day in days %}
-            {% set data = log_dict.get(day, {'score': 0, 'has_blog': 0, 'blog_text': ''}) %}
-            <div class="day score-{{ data.score }} {% if data.has_blog %}has-blog{% endif %}" 
-                 onclick="openModal('{{ day }}', {{ data.score }}, {{ data.has_blog }}, '{{ data.blog_text | replace('\n', '\\n') | escape }}')"
-                 title="{{ day }}">
+    <div class="main-container fade-in">
+        
+        <div class="view-switcher">
+            <div class="desktop-tabs">
+                <span id="tab-tracker" class="active-view" onclick="switchView('tracker')">The Grimoire</span>
+                <span id="tab-journal" class="inactive-view" onclick="switchView('journal')">The Chronicles</span>
             </div>
-        {% endfor %}
-    </div>
+            
+            <select id="mobile-nav" class="mobile-nav-dropdown" onchange="switchView(this.value)">
+                <option value="tracker">The Grimoire</option>
+                <option value="journal">The Chronicles</option>
+            </select>
 
-    <div id="modal">
-        <h3 id="modal-date"></h3>
-        <form action="/update" method="POST">
-            <input type="hidden" name="date" id="input-date">
-            <label>Score (0-6): <input type="number" name="score" id="input-score" min="0" max="6" required></label><br><br>
-            <label><input type="checkbox" name="has_blog" id="input-blog-check"> Include Blog Entry</label><br><br>
-            <textarea name="blog_text" id="input-blog-text" placeholder="Write your daily entry here..."></textarea><br>
-            <button type="submit">Save</button>
-            <button type="button" onclick="document.getElementById('modal').style.display='none'" style="background: #555; color: white;">Cancel</button>
-        </form>
+            <div class="settings-nav">
+                <a href="/change_credentials" title="Account Settings">&#9881;</a>
+                <a href="/logout" title="Log Out">&#10006;</a>
+            </div>
+        </div>
+        <div id="view-tracker" class="scroll smooth-fade" style="display: block;">
+            <div class="header">
+                <span onclick="loadMonth(ENV.prevYear, ENV.prevMonth)" class="nav-link">&larr;</span>
+                <h2 style="margin:0; font-size: 2.4rem;" id="month-title">{{ month_name }} {{ year }}</h2>
+                <span onclick="loadMonth(ENV.nextYear, ENV.nextMonth)" class="nav-link">&rarr;</span>
+            </div>
+            
+            <div class="grid" id="calendar">
+                {% for week in cal_data %}{% for d in week %}
+                    {% if not d %}<div class="day" style="visibility:hidden"></div>
+                    {% else %}
+                    <div class="day {{ 'is-today' if d.is_today }} {{ 'has-blog' if d.has_blog }}"
+                         data-date="{{ d.date }}" data-tags="{{ d.tags }}" data-snapshot="{{ d.snapshot | e }}" 
+                         data-blog="{{ d.has_blog }}" data-locked="{{ '1' if d.is_locked else '0' }}" 
+                         data-status="{{ d.status }}" onclick="openDay(this)">
+                         <div class="cell-paper"></div>
+                         <span class="cell-content">{{ d.day }}</span>
+                    </div>
+                    {% endif %}
+                {% endfor %}{% endfor %}
+            </div>
+            
+            <div id="editor">
+                <div class="editor-header">
+                    <h3 id="ed-date"></h3>
+                    <div>
+                        <span id="status-bar" style="margin-right: 10px;"></span>
+                        <button class="btn-close" onclick="closeEditor()">Close</button>
+                    </div>
+                </div>
+                
+                <label style="font-weight: bold; font-size: 1.2rem; display: block; margin-bottom: 5px;">Priorities <span style="font-weight: normal; font-size: 0.9rem; font-style: italic;">(Drag to reorder)</span>:</label>
+                <div class="tag-group" id="tag-container"></div>
+
+                <form id="f-add-tag" class="add-tag-box">
+                    <input type="text" id="new-tag-name" placeholder="New Priority" required>
+                    <button type="submit">+ Add</button>
+                </form>
+
+                <form id="f-update">
+                    <input type="hidden" name="date" id="i-date">
+                    <label style="font-weight: bold; font-size: 1.2rem; display: block; margin-bottom: 10px;">Journal Entry:</label>
+                    <textarea id="i-text"></textarea>
+                    <button type="submit" id="s-btn" class="btn-seal">Seal in Ink</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="view-journal" class="scroll smooth-fade" style="display: none;">
+            <div class="controls">
+                <input type="text" id="search-box" placeholder="Search entries...">
+                <button class="btn-toggle" id="btn-expand" onclick="toggleAll()">Expand All</button>
+            </div>
+            <div id="entries-container"></div>
+        </div>
+
+        <div id="color-picker">
+            <div style="font-weight:bold; margin-bottom:10px; color:var(--ink); text-align:center;">Change Color</div>
+            <div class="picker-controls">
+                <select id="cp-tier" onchange="populateColorPicker()"><option value="any">Any Tier</option><option value="bold">Bold</option><option value="medium">Medium</option><option value="whisper">Whisper</option></select>
+                <select id="cp-hue" onchange="populateColorPicker()"><option value="any">Any Hue</option><option value="red">Red</option><option value="orange">Orange</option><option value="yellow">Yellow</option><option value="green">Green</option><option value="cyan">Cyan</option><option value="blue">Blue</option><option value="purple">Purple</option><option value="pink">Pink</option></select>
+            </div>
+            <div id="color-options"></div>
+            
+            <hr style="border: 0; border-top: 1px dashed var(--parchment); margin: 12px 0;">
+            
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                <input type="text" id="hex-color-input" placeholder="#RRGGBB" maxlength="7" style="width: 100%; box-sizing: border-box; padding: 8px; font-family: monospace; font-size: 1rem; border: 1px solid var(--parchment); border-radius: 4px; background: rgba(255,255,255,0.6);">
+                <button type="button" class="btn-refresh-colors" style="width: 100%; padding: 8px;" onclick="selectHexColor()">Apply Hex</button>
+            </div>
+        </div>
+
+        <div id="footnote-overlay" class="modal-overlay">
+            <div class="footnote-modal fade-in">
+                <div class="editor-header">
+                    <h3 style="margin: 0; font-size: 1.8rem;">Add Footnote</h3>
+                    <button class="btn-close" onclick="closeFootnoteModal()">Close</button>
+                </div>
+                <div style="font-style: italic; color: #666; margin-bottom: 10px;" id="fn-display-date"></div>
+                
+                <form id="f-footnote">
+                    <input type="hidden" id="fn-date">
+                    <textarea id="fn-text"></textarea>
+                    <button type="submit" class="btn-seal" style="margin-top: 15px;">Append to Chronicles</button>
+                </form>
+            </div>
+        </div>
+
     </div>
 
     <script>
-        function openModal(date, score, hasBlog, blogText) {
-            document.getElementById('modal').style.display = 'block';
-            document.getElementById('modal-date').innerText = "Log for: " + date;
-            document.getElementById('input-date').value = date;
-            document.getElementById('input-score').value = score;
-            document.getElementById('input-blog-check').checked = hasBlog === 1;
-            document.getElementById('input-blog-text').value = blogText;
-        }
+        window.GRIMOIRE_ENV = {
+            todayStr: "{{ today_str }}",
+            tagsData: {{ tags_data | tojson | safe }},
+            logsData: {{ logs_data | tojson | safe }},
+            prevYear: {{ prev_year }},
+            prevMonth: {{ prev_month }},
+            nextYear: {{ next_year }},
+            nextMonth: {{ next_month }}
+        };
     </script>
 </body>
 </html>

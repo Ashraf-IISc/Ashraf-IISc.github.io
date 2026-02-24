@@ -4,7 +4,6 @@ from werkzeug.security import generate_password_hash
 connection = sqlite3.connect('database.db')
 cursor = connection.cursor()
 
-# Create the tables
 cursor.executescript('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -15,16 +14,16 @@ cursor.executescript('''
         date TEXT PRIMARY KEY,
         score INTEGER NOT NULL,
         has_blog BOOLEAN NOT NULL DEFAULT 0,
-        blog_text TEXT
+        blog_text TEXT,
+        edit_count INTEGER NOT NULL DEFAULT 0
     );
 ''')
 
-# Create your login account
 hashed_pw = generate_password_hash('1234')
 try:
     cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", ('ayan', hashed_pw))
 except sqlite3.IntegrityError:
-    pass # User already exists
+    pass
 
 connection.commit()
 connection.close()
