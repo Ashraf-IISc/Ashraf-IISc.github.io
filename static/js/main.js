@@ -1,57 +1,10 @@
-let ENV = window.GRIMOIRE_ENV || {};
+let ENV = window.GRIMOIRE_ENV;
 let mde = null; 
 let fnMde = null;
 let activeEl = null;
 let sortableInstance = null;
 let allExpanded = false;
 let activeTagForColor = null;
-const TAG_NAME_MAX_LEN = 60;
-
-function csrfFetch(url, options = {}) {
-    const nextOptions = { ...options };
-    const headers = new Headers(options.headers || {});
-    if (ENV && ENV.csrfToken) {
-        headers.set('X-CSRF-Token', ENV.csrfToken);
-    }
-    nextOptions.headers = headers;
-    return fetch(url, nextOptions);
-}
-
-function debounce(fn, wait = 150) {
-    let timeoutId;
-    return (...args) => {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => fn(...args), wait);
-    };
-}
-
-function escapeHtml(text) {
-    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-    return String(text).replace(/[&<>"']/g, (m) => map[m]);
-}
-
-function sanitizeHtml(html) {
-    const template = document.createElement('template');
-    template.innerHTML = html;
-
-    template.content.querySelectorAll('script, iframe, object, embed, link, meta, style').forEach((node) => node.remove());
-
-    template.content.querySelectorAll('*').forEach((node) => {
-        Array.from(node.attributes).forEach((attr) => {
-            const attrName = attr.name.toLowerCase();
-            const attrValue = String(attr.value || '').trim().toLowerCase();
-            if (attrName.startsWith('on')) {
-                node.removeAttribute(attr.name);
-                return;
-            }
-            if ((attrName === 'href' || attrName === 'src' || attrName === 'xlink:href') && attrValue.startsWith('javascript:')) {
-                node.removeAttribute(attr.name);
-            }
-        });
-    });
-
-    return template.innerHTML;
-}
 
 window.openColorPicker = function(e, tagName) {
     e.preventDefault();
@@ -59,10 +12,12 @@ window.openColorPicker = function(e, tagName) {
     activeTagForColor = tagName;
     populateColorPicker();
     
+    let currentColor = ENV.tagsData[tagName].color || '';
+    document.getElementById('hex-color-input').value = currentColor.toUpperCase();
+    
     const picker = document.getElementById('color-picker');
     picker.style.display = 'block'; 
     
-    // SMART POSITIONING: If on mobile, CSS perfectly centers it. If desktop, drop it down.
     if (window.innerWidth > 600) {
         const barRect = e.target.getBoundingClientRect();
         const pickerRect = picker.getBoundingClientRect();
@@ -76,11 +31,7 @@ window.openColorPicker = function(e, tagName) {
         
         picker.style.left = x + 'px'; 
         picker.style.top = y + 'px';
-        picker.style.transform = 'none'; // Resets any leftover mobile transforms
-    } else {
-        picker.style.left = '';
-        picker.style.top = '';
-        picker.style.transform = '';
+        picker.style.transform = 'none'; 
     }
 }
 
@@ -88,7 +39,6 @@ window.switchView = function(viewName) {
     const vTracker = document.getElementById('view-tracker');
     const vJournal = document.getElementById('view-journal');
     
-    // Syncs the mobile dropdown visually
     const mNav = document.getElementById('mobile-nav');
     if (mNav) mNav.value = viewName; 
     
@@ -140,27 +90,31 @@ window.populateColorPicker = function() {
     }
 }
 
-// THE SIMPLIFIED HEX VALIDATOR
 window.selectHexColor = function() { 
     let hex = document.getElementById('hex-color-input').value.trim();
-
-    if (/^#?[0-9A-F]{3}$/i.test(hex)) {
-        hex = hex.replace('#', '');
-        hex = `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
-    } else if (/^[0-9A-F]{6}$/i.test(hex)) {
+    
+    if (hex === '') return;
+    
+    if (hex.charAt(0) !== '#') {
         hex = '#' + hex;
-    } else if (!/^#[0-9A-F]{6}$/i.test(hex)) {
-        alert('Please enter a valid hex code (e.g. #FF5500 or #F50)');
+    }
+    
+    if (/^#[0-9A-F]{3}$/i.test(hex)) {
+        hex = '#' + hex[1]+hex[1] + hex[2]+hex[2] + hex[3]+hex[3];
+    }
+    
+    if (!/^#[0-9A-F]{6}$/i.test(hex)) {
+        alert('Please enter a valid hex code (e.g. FF5500 or F50)');
         return;
     }
-
-    hex = hex.toUpperCase();
+    
     selectColor(hex); 
+    document.getElementById('hex-color-input').value = ''; 
 }
 
 function selectColor(colorHex) {
     const fd = new FormData(); fd.append('name', activeTagForColor); fd.append('color', colorHex);
-    csrfFetch('/update_tag_color', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+    fetch('/update_tag_color', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
         if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('color-picker').style.display = 'none'; }
     });
 }
@@ -169,79 +123,67 @@ document.addEventListener('click', (e) => {
     if(!e.target.closest('#color-picker') && !e.target.closest('.pill-color-bar')) { document.getElementById('color-picker').style.display = 'none'; }
 });
 
-window.togglePill = function(checkbox) {
+// THE FIX: Added the skipSave flag to prevent race conditions during renders
+window.togglePill = function(checkbox, skipSave = false) {
     const pill = checkbox.closest('.tag-pill');
     if(checkbox.checked) pill.classList.add('active-pill'); else pill.classList.remove('active-pill');
+    
+    // Only fire the instant background save if it was a human click (!skipSave)
+    if (!skipSave && activeEl && activeEl.dataset.locked !== '1') {
+        const targetDate = document.getElementById('i-date').value;
+        const activeTags = Array.from(document.querySelectorAll('input[name="tags"]:checked')).map(cb => cb.value).join(',');
+        
+        const fd = new FormData();
+        fd.append('date', targetDate); fd.append('tags', activeTags);
+        
+        fetch('/update_day_tags', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            if(data.status === 'success') {
+                activeEl.dataset.tags = data.new_tags;
+                activeEl.dataset.snapshot = data.snapshot;
+                applyColors(); 
+            }
+        });
+    }
 };
 
 window.closeEditor = function() { document.getElementById('editor').style.display = 'none'; activeEl = null; };
 
 function renderTags() {
     const container = document.getElementById('tag-container'); container.innerHTML = '';
-    const tagsData = ENV.tagsData || {};
-    const sortedTags = Object.keys(tagsData).sort((a, b) => tagsData[b].priority - tagsData[a].priority);
+    const sortedTags = Object.keys(ENV.tagsData).sort((a, b) => ENV.tagsData[b].priority - ENV.tagsData[a].priority);
     const isLocked = activeEl && activeEl.dataset.locked === '1';
 
     sortedTags.forEach(tagName => {
-        const tag = tagsData[tagName];
-        const pill = document.createElement('div');
-        pill.className = 'tag-pill';
-        pill.dataset.tagName = tagName;
-
-        const dragHandle = document.createElement('span');
-        dragHandle.className = 'drag-handle';
-        dragHandle.textContent = '≡';
-
-        const label = document.createElement('label');
-
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.name = 'tags';
-        checkbox.value = tagName;
-        checkbox.disabled = isLocked;
-        checkbox.addEventListener('change', () => togglePill(checkbox));
-
-        const nameSpan = document.createElement('span');
-        nameSpan.title = tagName;
-        nameSpan.textContent = tagName;
-
-        const colorBar = document.createElement('div');
-        colorBar.className = 'pill-color-bar';
-        colorBar.style.backgroundColor = tag.color;
-        colorBar.title = 'Tap to change color';
-        colorBar.addEventListener('click', (event) => openColorPicker(event, tagName));
-
-        const deleteButton = document.createElement('button');
-        deleteButton.type = 'button';
-        deleteButton.className = 'tag-del-btn';
-        deleteButton.textContent = '×';
-        deleteButton.style.display = isLocked ? 'none' : 'block';
-        deleteButton.addEventListener('click', () => deleteTag(tagName));
-
-        label.appendChild(checkbox);
-        label.appendChild(nameSpan);
-        label.appendChild(colorBar);
-
-        pill.appendChild(dragHandle);
-        pill.appendChild(label);
-        pill.appendChild(deleteButton);
+        const tag = ENV.tagsData[tagName];
+        const pill = document.createElement('div'); pill.className = 'tag-pill'; pill.dataset.tagName = tagName;
+        pill.innerHTML = `
+            <label>
+                <input type="checkbox" name="tags" value="${tagName}" onchange="togglePill(this)" ${isLocked ? 'disabled' : ''}> 
+                <span title="${tagName}">${tagName}</span>
+                <div class="pill-color-bar" style="background-color: ${tag.color};" onclick="openColorPicker(event, '${tagName}')" title="Tap to change color"></div>
+            </label>
+            <button type="button" class="tag-del-btn" onclick="deleteTag('${tagName}')" style="display: ${isLocked ? 'none' : 'block'}">&times;</button>
+        `;
         container.appendChild(pill);
     });
     
     if (activeEl) {
         const activeTags = activeEl.dataset.tags ? activeEl.dataset.tags.split(',') : [];
-        document.querySelectorAll('input[name="tags"]').forEach(cb => { cb.checked = activeTags.includes(cb.value); togglePill(cb); });
+        document.querySelectorAll('input[name="tags"]').forEach(cb => { 
+            cb.checked = activeTags.includes(cb.value); 
+            // THE FIX: Pass true so the computer drawing the tags doesn't trigger 10 instant saves
+            togglePill(cb, true); 
+        });
     }
 }
 
 function applyColors() {
     const etchedPattern = `repeating-linear-gradient(45deg, rgba(26, 15, 10, 0.05) 0px, rgba(26, 15, 10, 0.05) 2px, transparent 2px, transparent 8px)`;
-    const currentTagsData = ENV.tagsData || {};
     document.querySelectorAll('.day').forEach(dayDiv => {
         const dayDate = dayDiv.getAttribute('data-date'); const tagsStr = dayDiv.getAttribute('data-tags'); const paper = dayDiv.querySelector('.cell-paper');
         if (!paper) return;
         
-        let sizeUniverse = currentTagsData; 
+        let sizeUniverse = ENV.tagsData; 
         if (dayDate < ENV.todayStr) {
             let snapshotStr = dayDiv.getAttribute('data-snapshot');
             if (snapshotStr && snapshotStr !== '{}' && snapshotStr !== 'None') { try { let parsed = JSON.parse(snapshotStr); if (Object.keys(parsed).length > 0) sizeUniverse = parsed; } catch(e) {} }
@@ -251,18 +193,18 @@ function applyColors() {
         if (tags.length === 0) { paper.style.background = etchedPattern; return; }
 
         const allUniverseNames = Object.keys(sizeUniverse); const N = allUniverseNames.length; if (N === 0) return;
-        let minPct = 5; let usablePct = 100 - (N * minPct); if (usablePct < 0) { minPct = 100 / N; usablePct = 0; }
-        let globalTotalWeight = allUniverseNames.reduce((sum, name) => sum + Math.pow(sizeUniverse[name].priority, 2), 0);
+        let minPct = 12; let usablePct = 100 - (N * minPct); if (usablePct < 0) { minPct = 100 / N; usablePct = 0; }
+        let globalTotalWeight = allUniverseNames.reduce((sum, name) => sum + Math.pow(sizeUniverse[name].priority, 1.5), 0);
 
         let tagSizes = {};
-        allUniverseNames.forEach(name => { let weight = Math.pow(sizeUniverse[name].priority, 2); tagSizes[name] = minPct + ((globalTotalWeight > 0 ? (weight / globalTotalWeight) : 0) * usablePct); });
+        allUniverseNames.forEach(name => { let weight = Math.pow(sizeUniverse[name].priority, 1.5); tagSizes[name] = minPct + ((globalTotalWeight > 0 ? (weight / globalTotalWeight) : 0) * usablePct); });
 
         tags.sort((a, b) => sizeUniverse[b].priority - sizeUniverse[a].priority);
         let currentPct = 0; let gradientStops = [];
 
         tags.forEach(t => {
             let size = tagSizes[t] || 0; let start = currentPct; let end = currentPct + size;
-            let renderColor = (currentTagsData[t] && currentTagsData[t].color) ? currentTagsData[t].color : sizeUniverse[t].color;
+            let renderColor = (ENV.tagsData[t] && ENV.tagsData[t].color) ? ENV.tagsData[t].color : sizeUniverse[t].color;
             gradientStops.push(`${renderColor} ${start}%`); gradientStops.push(`${renderColor} ${end}%`);
             currentPct += size;
         });
@@ -273,62 +215,25 @@ function applyColors() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    ENV = window.GRIMOIRE_ENV || ENV || {};
-    if (!ENV.tagsData) ENV.tagsData = {};
-    if (!ENV.logsData) ENV.logsData = {};
-    if (!ENV.todayStr) ENV.todayStr = new Date().toISOString().slice(0, 10);
-
     renderTags(); applyColors();
-
-    const calendarEl = document.getElementById('calendar');
-    if (calendarEl) {
-        calendarEl.addEventListener('click', (e) => {
-            const dayEl = e.target.closest('.day[data-date]');
-            if (!dayEl || dayEl.style.visibility === 'hidden') return;
-            openDay(dayEl);
-        });
-    }
-
-    const searchInput = document.getElementById('search-box');
-    if (searchInput) {
-        searchInput.addEventListener('input', debounce(filterEntries, 120));
-    }
     
     sortableInstance = new Sortable(document.getElementById('tag-container'), {
-        animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost',
+        animation: 250, 
+        filter: '.tag-del-btn', 
+        preventOnFilter: false, 
+        ghostClass: 'sortable-ghost',
+        delay: 150,
+        delayOnTouchOnly: true,
         onEnd: function () {
             let newOrder = []; document.querySelectorAll('.tag-pill').forEach(pill => { newOrder.push(pill.dataset.tagName); });
-            csrfFetch('/reorder_tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: newOrder }) })
+            fetch('/reorder_tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: newOrder }) })
             .then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
         }
     });
 
     document.getElementById('f-add-tag').onsubmit = function(e) {
-        e.preventDefault();
-        const inputEl = document.getElementById('new-tag-name');
-        const normalized = inputEl.value.replace(/,/g, '').trim();
-
-        if (!normalized) {
-            alert('Tag name is required.');
-            inputEl.focus();
-            return;
-        }
-
-        if (normalized.length > TAG_NAME_MAX_LEN) {
-            alert(`Tag name must be ${TAG_NAME_MAX_LEN} characters or fewer.`);
-            inputEl.focus();
-            return;
-        }
-
-        if (normalized.includes('\u0000')) {
-            alert('Tag name contains invalid characters.');
-            inputEl.focus();
-            return;
-        }
-
-        const fd = new FormData();
-        fd.append('name', normalized);
-        csrfFetch('/add_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+        e.preventDefault(); const fd = new FormData(); fd.append('name', document.getElementById('new-tag-name').value);
+        fetch('/add_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('new-tag-name').value = ''; } else { alert(data.error); }
         });
     };
@@ -336,12 +241,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('f-update').onsubmit = function(e) {
         e.preventDefault(); const fd = new FormData(this); const markdownText = mde.value().trim(); const targetDate = document.getElementById('i-date').value;
         
-        fd.set('blog_text', markdownText); if (markdownText.length > 0) { fd.set('has_blog', '1'); }
+        fd.set('blog_text', markdownText); let isBlog = false; if (markdownText.length > 0) { fd.set('has_blog', '1'); isBlog = true; }
         fd.set('tags', Array.from(document.querySelectorAll('input[name="tags"]:checked')).map(cb => cb.value).join(','));
 
-        csrfFetch('/update', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+        fetch('/update', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') {
-                activeEl.className = `day ${activeEl.classList.contains('is-today')?'is-today':''} ${markdownText.length > 0 ? 'has-blog' : ''}`;
+                activeEl.className = `day ${activeEl.classList.contains('is-today')?'is-today':''} ${isBlog ? 'has-blog' : ''}`;
                 activeEl.dataset.tags = data.new_tags; activeEl.dataset.blog = data.has_blog; activeEl.dataset.snapshot = data.snapshot; 
                 
                 if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
@@ -361,7 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fd.append('date', targetDate);
         fd.append('footnotes', text);
 
-        csrfFetch('/update_footnote', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+        fetch('/update_footnote', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') {
                 if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
                 ENV.logsData[targetDate].footnotes = text;
@@ -374,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.loadMonth = function(year, month) {
     closeEditor(); 
-    csrfFetch(`/api/calendar?year=${year}&month=${month}`).then(r => r.json()).then(data => {
+    fetch(`/api/calendar?year=${year}&month=${month}`).then(r => r.json()).then(data => {
         document.getElementById('month-title').innerText = `${data.month_name} ${data.year}`;
         ENV.prevYear = data.prev_year; ENV.prevMonth = data.prev_month; ENV.nextYear = data.next_year; ENV.nextMonth = data.next_month;
         let html = '';
@@ -382,12 +287,8 @@ window.loadMonth = function(year, month) {
             week.forEach(d => {
                 if (!d) { html += '<div class="day" style="visibility:hidden"></div>'; } else {
                     let classes = `day ${d.is_today ? 'is-today' : ''} ${d.has_blog ? 'has-blog' : ''}`;
-                    let safeSnapshot = d.snapshot ? escapeHtml(d.snapshot) : '{}';
-                    let safeDate = escapeHtml(d.date);
-                    let safeTags = escapeHtml(d.tags);
-                    let safeStatus = escapeHtml(d.status);
-                    let safeDay = escapeHtml(String(d.day));
-                    html += `<div class="${classes}" data-date="${safeDate}" data-tags="${safeTags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${safeStatus}" onclick="openDay(this)"><div class="cell-paper"></div><span class="cell-content">${safeDay}</span></div>`;
+                    let safeSnapshot = d.snapshot ? d.snapshot.replace(/"/g, '&quot;') : '{}';
+                    html += `<div class="${classes}" data-date="${d.date}" data-tags="${d.tags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${d.status}" onclick="openDay(this)"><div class="cell-paper"></div><span class="cell-content">${d.day}</span></div>`;
                 }
             });
         });
@@ -406,6 +307,8 @@ window.openDay = function(el) {
     let logObj = ENV.logsData[targetDate] || {main: ''};
     mde.value(logObj.main);
     
+    setTimeout(() => { mde.codemirror.refresh(); }, 50);
+    
     const isLocked = el.dataset.locked === '1';
     document.getElementById('s-btn').disabled = isLocked; mde.codemirror.setOption("readOnly", isLocked);
     renderTags(); sortableInstance.option("disabled", isLocked);
@@ -415,7 +318,7 @@ window.openDay = function(el) {
 window.deleteTag = function(tagName) {
     if(!confirm(`Archive '${tagName}'? Historical entries keep their color, but it will be removed from the menu.`)) return;
     const fd = new FormData(); fd.append('name', tagName);
-    csrfFetch('/delete_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
+    fetch('/delete_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
 };
 
 window.renderJournal = function() {
@@ -444,8 +347,6 @@ window.renderJournal = function() {
             lines.splice(titleIndex, 1); remainingText = lines.join('\n').trim();
         }
 
-        const safeTitle = escapeHtml(title);
-
         const div = document.createElement('div'); div.className = 'entry';
         div.dataset.searchtext = (title + " " + remainingText + " " + rawFootnotes + " " + dateStr).toLowerCase();
         
@@ -454,16 +355,16 @@ window.renderJournal = function() {
                 <div class="entry-date">${dateStr}</div>
                 <button class="btn-add-footnote" onclick="openFootnoteModal('${date}')" title="Add or edit infinite footnotes">&#10000; Footnotes</button>
             </div>
-            <button class="entry-title" onclick="toggleEntry(this)">${safeTitle}</button>
+            <button class="entry-title" onclick="toggleEntry(this)">${title}</button>
             <div class="entry-content" style="display: ${allExpanded ? 'block' : 'none'}; opacity: ${allExpanded ? '1' : '0'}; transition: opacity 0.3s;">
-                <div class="main-text">${sanitizeHtml(marked.parse(remainingText, { breaks: true }))}</div>
+                <div class="main-text">${marked.parse(remainingText, { breaks: true })}</div>
         `;
         
         if (rawFootnotes.trim() !== '') {
             html += `
                 <div class="footnote-block">
                     <div class="footnote-block-title">Chronicle Addendum</div>
-                    ${sanitizeHtml(marked.parse(rawFootnotes, { breaks: true }))}
+                    ${marked.parse(rawFootnotes, { breaks: true })}
                 </div>
             `;
         }
@@ -500,9 +401,7 @@ window.toggleEntry = function(btn) {
 }
 
 window.filterEntries = function() {
-    const searchBox = document.getElementById('search-box');
-    if (!searchBox) return;
-    const query = searchBox.value.toLowerCase();
+    const query = document.getElementById('search-box').value.toLowerCase();
     document.querySelectorAll('.entry').forEach(entry => { entry.style.display = entry.dataset.searchtext.includes(query) ? 'block' : 'none'; });
 }
 

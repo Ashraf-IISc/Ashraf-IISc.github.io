@@ -4,11 +4,11 @@
     <title>The Grimoire</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/easymde.min.css') }}">
-    <script src="{{ url_for('static', filename='js/Sortable.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sortable.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/easymde.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/marked.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=6" defer></script>
 </head>
 <body>
     <div class="main-container fade-in">
@@ -41,9 +41,9 @@
                     {% if not d %}<div class="day" style="visibility:hidden"></div>
                     {% else %}
                     <div class="day {{ 'is-today' if d.is_today }} {{ 'has-blog' if d.has_blog }}"
-                        data-date="{{ d.date | e }}" data-tags="{{ d.tags | e }}" data-snapshot="{{ d.snapshot | e }}" 
-                        data-blog="{{ d.has_blog }}" data-locked="{{ '1' if d.is_locked else '0' }}" 
-                        data-status="{{ d.status | e }}" onclick="openDay(this)">
+                         data-date="{{ d.date }}" data-tags="{{ d.tags }}" data-snapshot="{{ d.snapshot | e }}" 
+                         data-blog="{{ d.has_blog }}" data-locked="{{ '1' if d.is_locked else '0' }}" 
+                         data-status="{{ d.status }}" onclick="openDay(this)">
                          <div class="cell-paper"></div>
                          <span class="cell-content">{{ d.day }}</span>
                     </div>
@@ -64,24 +64,24 @@
                 <div class="tag-group" id="tag-container"></div>
 
                 <form id="f-add-tag" class="add-tag-box">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="text" id="new-tag-name" placeholder="New Priority (max 60 chars)" maxlength="60" required>
+                    <input type="text" id="new-tag-name" placeholder="New Priority" required>
                     <button type="submit">+ Add</button>
                 </form>
 
                 <form id="f-update">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="date" id="i-date">
-                    <label style="font-weight: bold; font-size: 1.2rem; display: block; margin-bottom: 10px;">Journal Entry:</label>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label style="font-weight: bold; font-size: 1.2rem; margin: 0;">Journal Entry:</label>
+                        <button type="submit" id="s-btn" class="btn-seal-inline">Seal in Ink</button>
+                    </div>
                     <textarea id="i-text"></textarea>
-                    <button type="submit" id="s-btn" class="btn-seal">Seal in Ink</button>
                 </form>
             </div>
         </div>
 
         <div id="view-journal" class="scroll smooth-fade" style="display: none;">
             <div class="controls">
-                <input type="text" id="search-box" placeholder="Search entries...">
+                <input type="text" id="search-box" placeholder="Search entries..." oninput="filterEntries()">
                 <button class="btn-toggle" id="btn-expand" onclick="toggleAll()">Expand All</button>
             </div>
             <div id="entries-container"></div>
@@ -112,7 +112,6 @@
                 <div style="font-style: italic; color: #666; margin-bottom: 10px;" id="fn-display-date"></div>
                 
                 <form id="f-footnote">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" id="fn-date">
                     <textarea id="fn-text"></textarea>
                     <button type="submit" class="btn-seal" style="margin-top: 15px;">Append to Chronicles</button>
@@ -122,21 +121,16 @@
 
     </div>
 
-    <script id="grimoire-env" type="application/json">
-        {{ {
-            'todayStr': today_str,
-            'tagsData': tags_data,
-            'logsData': logs_data,
-            'csrfToken': csrf_token(),
-            'prevYear': prev_year,
-            'prevMonth': prev_month,
-            'nextYear': next_year,
-            'nextMonth': next_month
-        } | tojson | safe }}
-    </script>
     <script>
-        const envScript = document.getElementById('grimoire-env');
-        window.GRIMOIRE_ENV = envScript ? JSON.parse(envScript.textContent) : {};
+        window.GRIMOIRE_ENV = {
+            todayStr: "{{ today_str }}",
+            tagsData: {{ tags_data | tojson | safe }},
+            logsData: {{ logs_data | tojson | safe }},
+            prevYear: {{ prev_year }},
+            prevMonth: {{ prev_month }},
+            nextYear: {{ next_year }},
+            nextMonth: {{ next_month }}
+        };
     </script>
 </body>
 </html>

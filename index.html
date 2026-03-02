@@ -37,16 +37,12 @@
             padding: 1rem;
             margin-bottom: 1rem;
             background: #252525;
+            transition: border-color 0.3s ease;
         }
-        .code-block {
-            background: #000;
-            padding: 10px;
-            border-left: 3px solid var(--accent-color);
-            font-size: 0.9rem;
-            margin-top: 10px;
+        .project-card:hover {
+            border-color: var(--accent-color);
         }
         
-        /* New Button Style */
         .btn {
             display: inline-block;
             padding: 8px 15px;
@@ -61,6 +57,23 @@
             background-color: #00cc7d;
             text-decoration: none;
         }
+        
+        /* Terminal Log Style for Personal Text */
+        .terminal-log {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            border-left: 4px solid #888;
+        }
+        .terminal-log p {
+            margin-bottom: 1rem;
+            color: #ccc;
+        }
+        .terminal-log p:last-child {
+            margin-bottom: 0;
+        }
+
         /* --- PRINT/PDF STYLES --- */
         @media print {
             body {
@@ -71,31 +84,21 @@
                 padding: 1rem;
                 font-size: 11pt;
             }
-            header {
-                border-bottom: 2px solid black;
-            }
-            h2 {
-                color: black;
-                border-bottom: 1px solid #ccc;
-            }
-            .subtitle, a {
-                color: #333;
-            }
+            header { border-bottom: 2px solid black; }
+            h2 { color: black; border-bottom: 1px solid #ccc; }
+            .subtitle, a { color: #333; }
             .project-card {
                 border: 1px solid #ccc;
                 background: white;
-                page-break-inside: avoid; /* Prevents a project from being cut in half across pages */
+                page-break-inside: avoid; 
             }
-            .code-block {
-                background: #f0f0f0;
-                border-left: 3px solid black;
+            .terminal-log {
+                background: #f9f9f9;
+                border: 1px solid #ccc;
+                border-left: 4px solid black;
             }
-            .btn {
-                display: none; /* Hides the download button on the PDF */
-            }
-            footer {
-                display: none; /* Hides the footer on the PDF */
-            }
+            .terminal-log p { color: black; }
+            .btn, footer { display: none; }
         }    
     </style>
 </head>
@@ -108,46 +111,48 @@
     
     <a href="Ayan_Ashraf_CV.pdf" download="Ayan_Ashraf_CV.pdf" class="btn">Download CV (PDF)</a>
 </header>
+
 <section>
-    <h2># About Me</h2>
-    <p>
-        I am an undergraduate physics student with a strong interest in <strong>astronomy</strong>, 
-        <strong>semiconductor physics</strong>, and <strong>computational systems</strong>. 
-    </p>
-    <p>
-        I enjoy bridging the gap between theoretical physics and applied computer science, 
-        using programming to automate complex lab data analysis and exploring system security 
-        in Linux environments.
-    </p>
+    <h2># origin_log.txt</h2>
+    <div class="terminal-log">
+        <p>This might be a rant so thanks in advance for bearing with me. So I have had an interest in night sky observations and astronomy for quite some time. Presumably since lockdown when most of my "interests" like computers among other things began. But like most of my interests I usually start things and get an elementary set of knowledge about it until something else takes its place. I don't know if it's adhd or my lack of self discipline or me being lethargic to put in effort in anything.</p>
+        
+        <p>Honestly with so many interests that have started and ended or linger in small amounts I am afraid to say that I have a passion for anything.</p>
+        
+        <p>Now this may sound cringe but during early periods of my interests in astronomy I was watching an anime called <em>Koisuru Asteroid</em>. It's a slice of life anime about a girl Ao whose friend Mira promised to name an asteroid after her. By the end in fact they couldn't find a new one. Call it my naivety that I thought I could do it for them.</p>
+        
+        <p>This and other childish things (<em>Violet Evergarden</em> Episode 06) come to my mind when I think of astronomy. I don't think I would have lived a proper life if I didn't put this "interest" of mine to a proper conclusion.</p>
+        
+        <p>All this is to say that it may be too much to ask of you to help find out if I ever had any passion for astronomy or observation. I don't how one does go about finding that, some of the things come to my mind is maybe volunteer for Astrae, I know that personal effort is the most important factor for anything but I can't remember a time where I have put in much effort without external pressure and now it seems I have become immune to even the pressure.</p>
+    </div>
 </section>
 
 <section>
-    <h2># Lab Work & Academic Projects</h2>
+    <h2># The Sandbox (Projects & Lab Work)</h2>
     
     <div class="project-card">
-        <h3><strong>> Experimental Physics: Electron Diffraction</strong></h3>
-        <p>Conducted experiments analyzing graphite diffraction patterns to determine lattice constants and understand wave-particle duality.</p>
-        <div class="code-block">Data compiled and formatted via Python (NumPy/Matplotlib) and LaTeX (TeXstudio/MiKTeX).</div>
+        <h3><strong>> Digital Rabbit Holes & Tinkering</strong></h3>
+        <p>I tend to learn by diving into whatever currently has my attention. Recently, that meant setting up a pruned Monero (XMR) node to understand decentralized privacy (and figuring out the whole pipeline from exchange to CLI wallet). I also spend a lot of time breaking and fixing my local setup—troubleshooting WSL, configuring SSH, and occasionally learning how to bypass my own forgotten passwords to understand system security.</p>
     </div>
 
     <div class="project-card">
-        <h3><strong>> Experimental Physics: Ferromagnetic Hysteresis</strong></h3>
-        <p>Measured and analyzed the magnetic properties of ferromagnetic materials to plot and interpret hysteresis loops.</p>
+        <h3><strong>> Personal Web Development</strong></h3>
+        <p>When I want a tool to exist, I try to build it. I recently spent several days building and debugging a custom, full-stack personal journaling web application from the ground up using Python, Flask, SQLite, and JavaScript.</p>
     </div>
 
     <div class="project-card">
-        <h3><strong>> Local Network & Security Exploration</strong></h3>
-        <p>Configured WSL Ubuntu environments, implemented secure SSH key-based authentication, and currently maintaining a pruned XMR node for network privacy study.</p>
+        <h3><strong>> BSc Physics Labs & Data Wrangling</strong></h3>
+        <p>Surviving the core experimental labs at IISc. I've worked through setups involving reversible pendulums, microwaves, electron diffraction, and ferromagnetic hysteresis. Beyond the physical experiments, the real skill I've built here is taking incredibly messy, real-world lab data, wrestling it into shape using Python, and making the final analysis look professional in LaTeX.</p>
     </div>
 </section>
 
 <section>
-    <h2># Technical Skills & Tools</h2>
+    <h2># Active Tech Stack</h2>
     <ul>
-        <li><strong>Programming:</strong> Python, C</li>
-        <li><strong>Typesetting:</strong> LaTeX (Specialized in academic report formatting)</li>
-        <li><strong>Systems & Tools:</strong> Linux/WSL, Git, Command-line customization (Fastfetch/Neofetch)</li>
-        <li><strong>Other Interests:</strong> Cryptography, Sustainable Design (Biomimicry), Learning French</li>
+        <li><strong>Languages & Backend:</strong> Python, C, JavaScript, Flask, SQLite</li>
+        <li><strong>Data & Typesetting:</strong> NumPy, Matplotlib, LaTeX (The saving grace of my lab reports)</li>
+        <li><strong>Systems & Environments:</strong> Ubuntu via WSL, Git, SSH, Monero CLI</li>
+        <li><strong>Analog:</strong> Currently teaching 7th-grade mathematics (which is sometimes harder than the physics labs).</li>
     </ul>
 </section>
 
