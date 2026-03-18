@@ -315,6 +315,8 @@ atexit.register(kill_zombie_tunnels)
 # ----------------------------
 
 if __name__ == '__main__':
-    # Starts the secure tunneling engine before booting the server
-    threading.Thread(target=spawn_tunnel, daemon=True).start()
+    # Prevent the Flask reloader from double-booting the tunnel
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        threading.Thread(target=spawn_tunnel, daemon=True).start()
+        
     app.run(host='0.0.0.0', debug=True, port=5000)
