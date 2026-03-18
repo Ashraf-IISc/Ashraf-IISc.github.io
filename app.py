@@ -6,6 +6,11 @@ from datetime import datetime
 import calendar
 import json
 import colorsys
+import threading
+import subprocess
+import requests
+import re
+import atexit
 
 app = Flask(__name__)
 app.secret_key = 'the_grimoire_master_key_2026'
@@ -257,5 +262,59 @@ def delete_tag():
     conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
     return {"status": "success", "tags_data": tags_data}, 200
 
+# --- THE DEAD DROP ENGINE ---
+try:
+    with open('token.txt', 'r') as f:
+        GITHUB_TOKEN = f.read().strip()
+except FileNotFoundError:
+    GITHUB_TOKEN = "UNSET"
+
+GIST_ID = 'a6434fc786ab4ff847dbd09b35588ec4'
+
+def kill_zombie_tunnels():
+    """Ensures no orphaned Cloudflare processes are hogging the port."""
+    os.system('taskkill /f /im cloudflared-windows-amd64.exe >nul 2>&1')
+
+def update_dead_drop(live_url):
+    """Pushes the new Cloudflare URL to the GitHub Gist."""
+    headers = {
+        'Authorization': f'token {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    data = {
+        "files": {
+            "grimoire_url.json": {
+                "content": f'{{"url": "{live_url}"}}'
+            }
+        }
+    }
+    resp = requests.patch(f'https://api.github.com/gists/{GIST_ID}', headers=headers, json=data)
+    if resp.status_code == 200:
+        print(f"\n[+] Dead Drop updated securely: {live_url}")
+    else:
+        print(f"\n[-] Dead Drop update failed: {resp.text}")
+
+def spawn_tunnel():
+    """Runs Cloudflare in the background and intercepts the URL."""
+    kill_zombie_tunnels()
+    
+    cmd = ['cloudflared-windows-amd64.exe', 'tunnel', '--url', 'http://127.0.0.1:5000']
+    
+    # Cloudflare dumps its connection links into stderr, not stdout
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    
+    for line in process.stdout:
+        match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+        if match:
+            live_url = match.group(0)
+            update_dead_drop(live_url)
+            break # We found it, stop reading output
+
+# Register the kill switch so Windows cleans up when Flask shuts down
+atexit.register(kill_zombie_tunnels)
+# ----------------------------
+
 if __name__ == '__main__':
+    # Starts the secure tunneling engine before booting the server
+    threading.Thread(target=spawn_tunnel, daemon=True).start()
     app.run(host='0.0.0.0', debug=True, port=5000)

@@ -158,9 +158,31 @@
 
 <footer>
     <p style="margin-top: 4rem; font-size: 0.8rem; color: #555;">
-        Hosted locally on Windows via Python HTTP Server<a href="http://10.81.30.50:5000/login" style="color: inherit; text-decoration: none; cursor: default;">.</a>
+        Hosted locally on Windows via Python HTTP Server<span onclick="accessGrimoire()" style="cursor: default; color: inherit; user-select: none;">.</span>
     </p>
 </footer>
+
+<script>
+    async function accessGrimoire() {
+        const gistId = "a6434fc786ab4ff847dbd09b35588ec4"; 
+        
+        try {
+            const response = await fetch(`https://api.github.com/gists/${gistId}`);
+            const data = await response.json();
+            const fileContent = data.files['grimoire_url.json'].content;
+            const urlData = JSON.parse(fileContent);
+            
+            if (urlData.url && urlData.url !== "OFFLINE") {
+                window.location.href = urlData.url;
+            } else {
+                alert("The Grimoire is currently sealed (Server offline).");
+            }
+        } catch (error) {
+            console.error("Failed to read the Dead Drop:", error);
+            alert("Connection to the Dead Drop failed.");
+        }
+    }
+</script>
 
 </body>
 </html>

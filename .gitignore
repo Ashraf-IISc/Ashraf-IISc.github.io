@@ -5,3 +5,5 @@ database.db
 .env
 webfiles/
 webfiles2/
+cloudflared-windows-amd64.exe
+token.txt
