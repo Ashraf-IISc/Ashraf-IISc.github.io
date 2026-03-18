@@ -320,6 +320,15 @@ def spawn_tunnel():
 atexit.register(kill_zombie_tunnels)
 # ----------------------------
 
+from flask import make_response
+
+@app.route('/ping')
+def ping():
+    """A silent heartbeat endpoint for the portfolio to check if the server is alive."""
+    resp = make_response("pong")
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
 if __name__ == '__main__':
     # Prevent the Flask reloader from double-booting the tunnel
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
