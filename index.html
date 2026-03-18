@@ -178,7 +178,8 @@
                 // 2. THE PRE-FLIGHT PING: Knock on the door before redirecting
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3-second fuse
+                    // INCREASED FUSE: Give Cloudflare 8.5 seconds to answer the door
+                    const timeoutId = setTimeout(() => controller.abort(), 8500); 
                     
                     const pingCheck = await fetch(urlData.url + '/ping', { 
                         signal: controller.signal 
