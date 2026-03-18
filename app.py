@@ -272,7 +272,13 @@ except FileNotFoundError:
 GIST_ID = 'a6434fc786ab4ff847dbd09b35588ec4'
 
 def kill_zombie_tunnels():
-    """Ensures no orphaned Cloudflare processes are hogging the port."""
+    """Ensures no orphaned Cloudflare processes are hogging the port and resets the Dead Drop."""
+    print("\n[*] Sealing the Grimoire (Resetting Dead Drop to OFFLINE)...")
+    
+    # 1. Update the Gist back to OFFLINE before we shut down
+    update_dead_drop("OFFLINE")
+    
+    # 2. Kill the Cloudflare background process
     os.system('taskkill /f /im cloudflared-windows-amd64.exe >nul 2>&1')
 
 def update_dead_drop(live_url):
