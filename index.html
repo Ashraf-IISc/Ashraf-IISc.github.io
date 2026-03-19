@@ -163,7 +163,13 @@
 </footer>
 
 <script>
+    // THE DIGITAL DEADBOLT: Prevents rapid successive clicks from breaking the ping
+    let isConnecting = false;
+
     async function accessGrimoire() {
+        if (isConnecting) return; // If already checking, ignore the click
+        isConnecting = true;      // Lock the door
+        
         const gistId = "a6434fc786ab4ff847dbd09b35588ec4"; 
         
         try {
@@ -175,10 +181,9 @@
             
             if (urlData.url && urlData.url !== "OFFLINE") {
                 
-                // 2. THE PRE-FLIGHT PING: Knock on the door before redirecting
+                // 2. THE PRE-FLIGHT PING
                 try {
                     const controller = new AbortController();
-                    // INCREASED FUSE: Give Cloudflare 8.5 seconds to answer the door
                     const timeoutId = setTimeout(() => controller.abort(), 8500); 
                     
                     const pingCheck = await fetch(urlData.url + '/ping', { 
@@ -190,24 +195,28 @@
                     if (pingCheck.ok) {
                         // The server answered! Safe to jump.
                         window.location.href = urlData.url; 
+                        // Note: We do NOT unlock isConnecting here because the browser is jumping pages.
                     } else {
-                        // Cloudflare answered with an error. Cancel jump.
+                        // Cloudflare answered with an error. Cancel jump and unlock.
                         alert("The Grimoire is currently sealed (Server offline).");
+                        isConnecting = false; 
                     }
                 } catch (pingError) {
-                    // The knock timed out, or Cloudflare blocked it. Cancel jump.
+                    // The knock timed out, or Cloudflare blocked it. Cancel jump and unlock.
                     alert("The Grimoire is currently sealed (Server offline).");
+                    isConnecting = false; 
                 }
                 
             } else {
                 alert("The Grimoire is currently sealed (Server offline).");
+                isConnecting = false; // Unlock so you can try again later
             }
         } catch (error) {
             console.error("Failed to read the Dead Drop:", error);
             alert("Connection to the Dead Drop failed.");
+            isConnecting = false; // Unlock
         }
     }
 </script>
-
 </body>
 </html>
