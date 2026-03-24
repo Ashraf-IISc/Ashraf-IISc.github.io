@@ -3,7 +3,8 @@ __pycache__/
 *.db
 database.db
 .env
-webfiles/
-webfiles2/
+webfilesv0/
+webfilesv1/
+webfilesv2/
 cloudflared-windows-amd64.exe
 token.txt
