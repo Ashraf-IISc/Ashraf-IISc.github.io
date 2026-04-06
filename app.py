@@ -11,6 +11,7 @@ import subprocess
 import requests
 import re
 import atexit
+import ctypes
 
 app = Flask(__name__)
 app.secret_key = 'the_grimoire_master_key_2026'
@@ -275,10 +276,25 @@ def kill_zombie_tunnels():
     """Ensures no orphaned Cloudflare processes are hogging the port and resets the Dead Drop."""
     print("\n[*] Sealing the Grimoire (Resetting Dead Drop to OFFLINE)...")
     
-    # 1. Update the Gist back to OFFLINE before we shut down
+    # 1. Update the Gist back to OFFLINE
     update_dead_drop("OFFLINE")
     
-    # 2. Kill the Cloudflare background process
+    # 2. Fire the Push Notification ONLY if the Master process is dying
+    # (The Worker process dies constantly during live-reloads, the Master only dies when you quit)
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        try:
+            requests.post("https://ntfy.sh/ayan_grimoire_lab_alerts_9921", # Use your actual secret topic!
+                data="The Grimoire server has been manually sealed or shut down.",
+                headers={
+                    "Title": "Grimoire Offline",
+                    "Priority": "high",
+                    "Tags": "warning,skull"
+                },
+                timeout=3)
+        except Exception:
+            pass 
+        
+    # 3. Kill the Cloudflare background process
     os.system('taskkill /f /im cloudflared-windows-amd64.exe >nul 2>&1')
 
 def update_dead_drop(live_url):
@@ -328,6 +344,24 @@ def ping():
     resp = make_response("pong")
     resp.headers['Access-Control-Allow-Origin'] = '*'
     return resp
+
+def console_ctrl_handler(ctrl_type):
+    """Intercepts the Windows 'X' button close event."""
+    # ctrl_type 2 is CTRL_CLOSE_EVENT (clicking the 'X')
+    if ctrl_type == 2:
+        print("\n[!] Console window forcefully closed! Firing emergency flare...")
+        kill_zombie_tunnels()
+        return True # Tell Windows we handled it
+    return False
+
+# Convert the Python function into a C-callable callback
+win_handler = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)(console_ctrl_handler)
+
+# Register the interceptor with the Windows kernel
+try:
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(win_handler, True)
+except Exception:
+    pass # Fails gracefully if somehow not on Windows
 
 if __name__ == '__main__':
     # Prevent the Flask reloader from double-booting the tunnel
