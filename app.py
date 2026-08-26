@@ -12,12 +12,21 @@ import requests
 import re
 import atexit
 import ctypes
+import signal
 
 app = Flask(__name__)
 app.secret_key = 'the_grimoire_master_key_2026'
 TRACKER_START_DATE = '2026-02-22'
 
 def generate_tiered_pastels():
+    """Generate a deterministic palette of harmonious colors.
+
+    Args:
+        None.
+
+    Returns:
+        list[str]: A list of up to 128 hex color values.
+    """
     colors = []
     hues = [(i * 0.618033988749895) % 1.0 for i in range(43)]
     for h in hues: colors.append('#%02x%02x%02x' % tuple(int(x*255) for x in colorsys.hls_to_rgb(h, 0.75, 0.85)))
@@ -28,11 +37,28 @@ def generate_tiered_pastels():
 HARMONIOUS_COLORS = generate_tiered_pastels()
 
 def get_db_connection():
-    conn = sqlite3.connect('database.db')
+    """Create a SQLite connection configured for row-style access.
+
+    Args:
+        None.
+
+    Returns:
+        sqlite3.Connection: Database connection with Row row_factory enabled.
+    """
+    conn = sqlite3.connect('database.db', timeout=10)
     conn.row_factory = sqlite3.Row 
     return conn
 
 def assign_permanent_colors(conn, user_id=None):
+    """Assign stable colors to tags that do not yet have one.
+
+    Args:
+        conn (sqlite3.Connection): Open database connection.
+        user_id (int | None): Optional user ID to scope color assignment.
+
+    Returns:
+        None: Colors are persisted directly to the database.
+    """
     tags = conn.execute('SELECT id, color FROM tags WHERE user_id = ? ORDER BY id ASC', (user_id,)).fetchall() if user_id else conn.execute('SELECT id, color FROM tags ORDER BY id ASC').fetchall()
     for tag_row in tags:
         if not tag_row['color']:
@@ -40,9 +66,26 @@ def assign_permanent_colors(conn, user_id=None):
     conn.commit()
 
 def get_tags_data(conn, user_id):
+    """Fetch active tags for a user as a name-keyed dictionary.
+
+    Args:
+        conn (sqlite3.Connection): Open database connection.
+        user_id (int): User ID owning the tags.
+
+    Returns:
+        dict: Tag map keyed by tag name with color and priority metadata.
+    """
     return {t['name']: {'color': t['color'], 'priority': t['priority']} for t in conn.execute('SELECT * FROM tags WHERE user_id = ? AND active=1 ORDER BY priority DESC', (user_id,)).fetchall()}
 
 def init_db():
+    """Initialize required database schema and migrate additive fields.
+
+    Args:
+        None.
+
+    Returns:
+        None: Creates tables/columns if missing and closes the connection.
+    """
     conn = get_db_connection()
     conn.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS logs (user_id INTEGER, date TEXT, score INTEGER, has_blog INTEGER, blog_text TEXT, edit_count INTEGER DEFAULT 0, tags TEXT DEFAULT '', tags_snapshot TEXT DEFAULT '{}', PRIMARY KEY (user_id, date))''')
@@ -58,6 +101,14 @@ init_db()
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Authenticate a user and establish a session.
+
+    Args:
+        None.
+
+    Returns:
+        flask.Response: Login page render or redirect to tracker on success.
+    """
     if request.method == 'POST':
         user = get_db_connection().execute('SELECT * FROM users WHERE username = ?', (request.form['username'],)).fetchone()
         if user and check_password_hash(user['password'], request.form['password']):
@@ -68,6 +119,14 @@ def login():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    """Register a new user account and seed default tags.
+
+    Args:
+        None.
+
+    Returns:
+        flask.Response: Register page render or redirect to login on success.
+    """
     if request.method == 'POST':
         conn = get_db_connection()
         try:
@@ -83,6 +142,14 @@ def register():
 
 @app.route('/change_credentials', methods=['GET', 'POST'])
 def change_credentials():
+    """Update username and password for the authenticated user.
+
+    Args:
+        None.
+
+    Returns:
+        flask.Response: Credential form render or redirect to tracker on success.
+    """
     if 'user_id' not in session: return redirect(url_for('login'))
     if request.method == 'POST':
         conn = get_db_connection()
@@ -98,11 +165,27 @@ def change_credentials():
 
 @app.route('/logout')
 def logout():
+    """Clear the current login session.
+
+    Args:
+        None.
+
+    Returns:
+        flask.Response: Redirect response to the login view.
+    """
     session.pop('user_id', None)
     return redirect(url_for('login'))
 
 @app.route('/')
 def tracker():
+    """Render the main tracker page for the selected month.
+
+    Args:
+        None.
+
+    Returns:
+        flask.Response: Rendered tracker template with calendar and logs data.
+    """
     if 'user_id' not in session: return redirect(url_for('login'))
     user_id, today = session['user_id'], datetime.today()
     year, month = request.args.get('year', today.year, int), request.args.get('month', today.month, int)
@@ -139,6 +222,14 @@ def tracker():
 
 @app.route('/api/calendar')
 def api_calendar():
+    """Return monthly calendar data for asynchronous UI refresh.
+
+    Args:
+        None.
+
+    Returns:
+        tuple | dict: Unauthorized response tuple or calendar payload dictionary.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     user_id, today = session['user_id'], datetime.today()
     year, month = request.args.get('year', today.year, int), request.args.get('month', today.month, int)
@@ -172,6 +263,14 @@ def api_calendar():
 
 @app.route('/update', methods=['POST'])
 def update_day():
+    """Persist today's main entry, tag selections, and tag snapshot.
+
+    Args:
+        None.
+
+    Returns:
+        tuple[dict, int]: JSON payload with write result and HTTP status code.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     user_id, date, today_str = session['user_id'], request.form['date'], datetime.today().strftime('%Y-%m-%d')
     
@@ -191,6 +290,14 @@ def update_day():
 
 @app.route('/update_day_tags', methods=['POST'])
 def update_day_tags():
+    """Persist today's tag-only changes without replacing the main entry text.
+
+    Args:
+        None.
+
+    Returns:
+        tuple[dict, int]: JSON payload with write result and HTTP status code.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     user_id, date, today_str = session['user_id'], request.form['date'], datetime.today().strftime('%Y-%m-%d')
     
@@ -213,6 +320,14 @@ def update_day_tags():
 
 @app.route('/update_footnote', methods=['POST'])
 def update_footnote():
+    """Persist the addendum/footnotes text for a given date.
+
+    Args:
+        None.
+
+    Returns:
+        tuple[dict, int]: JSON payload with updated footnotes and status code.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     user_id, date, footnotes = session['user_id'], request.form['date'], request.form['footnotes']
     
@@ -226,6 +341,14 @@ def update_footnote():
 
 @app.route('/add_tag', methods=['POST'])
 def add_tag():
+    """Create or reactivate a user tag and return refreshed tag metadata.
+
+    Args:
+        None.
+
+    Returns:
+        tuple[dict, int]: JSON payload containing operation result and status.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     user_id, name = session['user_id'], request.form['name'].replace(',', '').strip()
     if not name: return {"error": "Name required"}, 400
@@ -241,6 +364,14 @@ def add_tag():
 
 @app.route('/update_tag_color', methods=['POST'])
 def update_tag_color():
+    """Update the display color for a single tag.
+
+    Args:
+        None.
+
+    Returns:
+        tuple[dict, int]: JSON payload with updated tag dataset and status.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     conn = get_db_connection()
     conn.execute('UPDATE tags SET color = ? WHERE user_id = ? AND name = ?', (request.form['color'], session['user_id'], request.form['name']))
@@ -249,6 +380,14 @@ def update_tag_color():
 
 @app.route('/reorder_tags', methods=['POST'])
 def reorder_tags():
+    """Persist drag-and-drop ordering of tags for the active user.
+
+    Args:
+        None.
+
+    Returns:
+        dict: JSON-compatible dictionary with status and updated tags.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     conn, max_prio = get_db_connection(), len(request.json.get('tags', []))
     for i, name in enumerate(request.json.get('tags', [])): conn.execute('UPDATE tags SET priority = ? WHERE user_id = ? AND name = ?', (max_prio - i, session['user_id'], name))
@@ -257,6 +396,14 @@ def reorder_tags():
 
 @app.route('/delete_tag', methods=['POST'])
 def delete_tag():
+    """Soft-delete a tag by marking it inactive.
+
+    Args:
+        None.
+
+    Returns:
+        tuple[dict, int]: JSON payload with updated tag dataset and status.
+    """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     conn = get_db_connection()
     conn.execute('UPDATE tags SET active=0 WHERE user_id = ? AND name = ?', (session['user_id'], request.form['name']))
@@ -271,17 +418,52 @@ except FileNotFoundError:
     GITHUB_TOKEN = "UNSET"
 
 GIST_ID = 'a6434fc786ab4ff847dbd09b35588ec4'
+TUNNEL_PROCESS = None
+TUNNEL_LOCK = threading.Lock()
 
-def kill_zombie_tunnels():
-    """Ensures no orphaned Cloudflare processes are hogging the port and resets the Dead Drop."""
+def stop_tunnel_process():
+    """Stop the tracked Cloudflare tunnel process if it is still running.
+
+    Args:
+        None.
+
+    Returns:
+        None: Process state is updated and process is terminated if needed.
+    """
+    global TUNNEL_PROCESS
+    with TUNNEL_LOCK:
+        process = TUNNEL_PROCESS
+        TUNNEL_PROCESS = None
+
+    if not process:
+        return
+
+    try:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    except Exception as e:
+        print(f"\n[-] Tunnel process shutdown warning: {e}")
+
+def kill_zombie_tunnels(send_notification=True):
+    """Force tunnel cleanup, mark endpoint offline, and optionally notify.
+
+    Args:
+        send_notification (bool): Whether to publish a shutdown notification.
+
+    Returns:
+        None: Performs cleanup side effects and exits.
+    """
     print("\n[*] Sealing the Grimoire (Resetting Dead Drop to OFFLINE)...")
-    
+
     # 1. Update the Gist back to OFFLINE
     update_dead_drop("OFFLINE")
-    
+
     # 2. Fire the Push Notification ONLY if the Master process is dying
     # (The Worker process dies constantly during live-reloads, the Master only dies when you quit)
-    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    if send_notification and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
         try:
             requests.post("https://ntfy.sh/ayan_grimoire_lab_alerts_9921", # Use your actual secret topic!
                 data="The Grimoire server has been manually sealed or shut down.",
@@ -293,12 +475,24 @@ def kill_zombie_tunnels():
                 timeout=3)
         except Exception:
             pass 
-        
-    # 3. Kill the Cloudflare background process
+
+    # 3. Stop tracked tunnel process first, then hard-kill any leftovers
+    stop_tunnel_process()
     os.system('taskkill /f /im cloudflared-windows-amd64.exe >nul 2>&1')
 
 def update_dead_drop(live_url):
-    """Pushes the new Cloudflare URL to the GitHub Gist."""
+    """Publish the tunnel URL state to the GitHub Gist endpoint.
+
+    Args:
+        live_url (str): Public URL value to publish (or OFFLINE sentinel).
+
+    Returns:
+        bool: True when the update succeeds, otherwise False.
+    """
+    if not GITHUB_TOKEN or GITHUB_TOKEN == "UNSET":
+        print("\n[-] Dead Drop update skipped: missing GitHub token.")
+        return False
+
     headers = {
         'Authorization': f'token {GITHUB_TOKEN}',
         'Accept': 'application/vnd.github.v3+json'
@@ -310,47 +504,107 @@ def update_dead_drop(live_url):
             }
         }
     }
-    resp = requests.patch(f'https://api.github.com/gists/{GIST_ID}', headers=headers, json=data)
-    if resp.status_code == 200:
+    try:
+        resp = requests.patch(f'https://api.github.com/gists/{GIST_ID}', headers=headers, json=data, timeout=8)
+        resp.raise_for_status()
         print(f"\n[+] Dead Drop updated securely: {live_url}")
-    else:
-        print(f"\n[-] Dead Drop update failed: {resp.text}")
+        return True
+    except requests.RequestException as e:
+        print(f"\n[-] Dead Drop update failed: {e}")
+        return False
 
 def spawn_tunnel():
-    """Runs Cloudflare in the background and intercepts the URL."""
-    kill_zombie_tunnels()
-    
+    """Launch cloudflared and capture the first public tunnel URL emitted.
+
+    Args:
+        None.
+
+    Returns:
+        None: Starts process, updates dead drop, and manages process state.
+    """
+    global TUNNEL_PROCESS
+    kill_zombie_tunnels(send_notification=False)
+
     cmd = ['cloudflared-windows-amd64.exe', 'tunnel', '--url', 'http://127.0.0.1:5000']
-    
-    # Cloudflare dumps its connection links into stderr, not stdout
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    
-    for line in process.stdout:
-        match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
-        if match:
-            live_url = match.group(0)
-            update_dead_drop(live_url)
-            break # We found it, stop reading output
+
+    try:
+        # Cloudflare dumps its connection links into stderr, not stdout
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        print("\n[-] cloudflared-windows-amd64.exe not found. Tunnel was not started.")
+        update_dead_drop("OFFLINE")
+        return
+    except Exception as e:
+        print(f"\n[-] Failed to launch tunnel: {e}")
+        update_dead_drop("OFFLINE")
+        return
+
+    with TUNNEL_LOCK:
+        TUNNEL_PROCESS = process
+
+    try:
+        for line in process.stdout:
+            match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+            if match:
+                live_url = match.group(0)
+                update_dead_drop(live_url)
+                break # We found it, stop reading output
+    except Exception as e:
+        print(f"\n[-] Tunnel output monitoring error: {e}")
+    finally:
+        with TUNNEL_LOCK:
+            if TUNNEL_PROCESS is process and process.poll() is not None:
+                TUNNEL_PROCESS = None
+
+def shutdown_grimoire(*_args):
+    """Run centralized shutdown cleanup for process and dead-drop state.
+
+    Args:
+        *_args: Optional signal-handler arguments.
+
+    Returns:
+        None: Executes tunnel cleanup and offline publication.
+    """
+    kill_zombie_tunnels(send_notification=True)
 
 # Register the kill switch so Windows cleans up when Flask shuts down
-atexit.register(kill_zombie_tunnels)
+atexit.register(shutdown_grimoire)
+
+for sig_name in ('SIGINT', 'SIGTERM'):
+    sig = getattr(signal, sig_name, None)
+    if sig is not None:
+        signal.signal(sig, shutdown_grimoire)
 # ----------------------------
 
 from flask import make_response
 
 @app.route('/ping')
 def ping():
-    """A silent heartbeat endpoint for the portfolio to check if the server is alive."""
+    """Provide a minimal heartbeat endpoint for uptime checks.
+
+    Args:
+        None.
+
+    Returns:
+        flask.Response: "pong" response with permissive CORS header.
+    """
     resp = make_response("pong")
     resp.headers['Access-Control-Allow-Origin'] = '*'
     return resp
 
 def console_ctrl_handler(ctrl_type):
-    """Intercepts the Windows 'X' button close event."""
+    """Handle Windows console close events to trigger cleanup.
+
+    Args:
+        ctrl_type (int): Windows control event code.
+
+    Returns:
+        bool: True when close event is handled, otherwise False.
+    """
     # ctrl_type 2 is CTRL_CLOSE_EVENT (clicking the 'X')
     if ctrl_type == 2:
         print("\n[!] Console window forcefully closed! Firing emergency flare...")
-        kill_zombie_tunnels()
+        shutdown_grimoire()
         return True # Tell Windows we handled it
     return False
 

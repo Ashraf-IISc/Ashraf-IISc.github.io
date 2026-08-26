@@ -2,6 +2,14 @@ from playwright.sync_api import sync_playwright
 import os
 
 def export_cv_to_pdf():
+    """Render the local CV HTML page and export it as an A4 PDF.
+
+    Args:
+        None.
+
+    Returns:
+        None: Writes the generated PDF to disk.
+    """
     print("Starting browser...")
     with sync_playwright() as p:
         # Launch the invisible browser

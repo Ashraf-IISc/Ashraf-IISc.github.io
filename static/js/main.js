@@ -6,6 +6,35 @@ let sortableInstance = null;
 let allExpanded = false;
 let activeTagForColor = null;
 
+/**
+ * Send a request to the Flask backend and return parsed JSON safely.
+ * Network failures, backend disconnects, and non-2xx responses are trapped
+ * so the UI can fail gracefully without breaking user flow.
+ *
+ * @param {string} url - Backend endpoint URL.
+ * @param {RequestInit} [options={}] - Fetch options.
+ * @param {string} [userMessage='Unable to reach the server right now.'] - Alert message shown on failure.
+ * @returns {Promise<Object|null>} Parsed response payload or null when the request fails.
+ */
+async function safeFetchJson(url, options = {}, userMessage = 'Unable to reach the server right now.') {
+    try {
+        const response = await fetch(url, options);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || `Request failed with status ${response.status}`);
+        }
+
+        return data;
+    } catch (err) {
+        console.error(`Backend request failed for ${url}:`, err);
+        if (userMessage) {
+            alert(userMessage);
+        }
+        return null;
+    }
+}
+
 window.openColorPicker = function(e, tagName) {
     e.preventDefault();
     e.stopPropagation();
@@ -73,6 +102,12 @@ function getRandomHueWithinBounds(hueName) {
     return Math.floor(Math.random() * (pick[1] - pick[0])) + pick[0];
 }
 
+/**
+ * Fill the color picker with random but controlled swatches based on selected
+ * hue and intensity tiers.
+ *
+ * @returns {void}
+ */
 window.populateColorPicker = function() {
     const container = document.getElementById('color-options'); container.innerHTML = '';
     const tierSelection = document.getElementById('cp-tier').value, hueSelection = document.getElementById('cp-hue').value;
@@ -112,11 +147,15 @@ window.selectHexColor = function() {
     document.getElementById('hex-color-input').value = ''; 
 }
 
-function selectColor(colorHex) {
+async function selectColor(colorHex) {
     const fd = new FormData(); fd.append('name', activeTagForColor); fd.append('color', colorHex);
-    fetch('/update_tag_color', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-        if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('color-picker').style.display = 'none'; }
-    });
+    const data = await safeFetchJson('/update_tag_color', { method: 'POST', body: fd }, 'Color update failed. Please try again.');
+    if (data && data.status === 'success') {
+        ENV.tagsData = data.tags_data;
+        renderTags();
+        applyColors();
+        document.getElementById('color-picker').style.display = 'none';
+    }
 }
 
 document.addEventListener('click', (e) => {
@@ -136,13 +175,14 @@ window.togglePill = function(checkbox, skipSave = false) {
         const fd = new FormData();
         fd.append('date', targetDate); fd.append('tags', activeTags);
         
-        fetch('/update_day_tags', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.status === 'success') {
+        (async () => {
+            const data = await safeFetchJson('/update_day_tags', { method: 'POST', body: fd }, 'Could not save tags. The server may be offline.');
+            if (data && data.status === 'success') {
                 activeEl.dataset.tags = data.new_tags;
                 activeEl.dataset.snapshot = data.snapshot;
-                applyColors(); 
+                applyColors();
             }
-        });
+        })();
     }
 };
 
@@ -177,6 +217,13 @@ function renderTags() {
     }
 }
 
+/**
+ * Paint each calendar cell with stacked gradients proportional to tag priority.
+ * Historical days use their stored tag snapshot so visual weights remain stable
+ * even if current tag priorities/colors later change.
+ *
+ * @returns {void}
+ */
 function applyColors() {
     const etchedPattern = `repeating-linear-gradient(45deg, rgba(26, 15, 10, 0.05) 0px, rgba(26, 15, 10, 0.05) 2px, transparent 2px, transparent 8px)`;
     document.querySelectorAll('.day').forEach(dayDiv => {
@@ -216,7 +263,13 @@ function applyColors() {
 
 document.addEventListener('DOMContentLoaded', () => {
     renderTags(); applyColors();
-    
+
+    /**
+     * Drag-and-drop ordering for tag pills.
+     * Sortable updates the visual sequence immediately, then persists the new
+     * order to Flask. Backend priority values are recalculated from top to
+     * bottom so future renders preserve the dragged order.
+     */
     sortableInstance = new Sortable(document.getElementById('tag-container'), {
         animation: 250, 
         filter: '.tag-del-btn', 
@@ -224,40 +277,51 @@ document.addEventListener('DOMContentLoaded', () => {
         ghostClass: 'sortable-ghost',
         delay: 150,
         delayOnTouchOnly: true,
-        onEnd: function () {
+        onEnd: async function () {
             let newOrder = []; document.querySelectorAll('.tag-pill').forEach(pill => { newOrder.push(pill.dataset.tagName); });
-            fetch('/reorder_tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: newOrder }) })
-            .then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
+            const data = await safeFetchJson('/reorder_tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: newOrder }) }, 'Reordering tags failed. Please retry.');
+            if (data && data.status === 'success') {
+                ENV.tagsData = data.tags_data;
+                renderTags();
+                applyColors();
+            }
         }
     });
 
-    document.getElementById('f-add-tag').onsubmit = function(e) {
+    document.getElementById('f-add-tag').onsubmit = async function(e) {
         e.preventDefault(); const fd = new FormData(); fd.append('name', document.getElementById('new-tag-name').value);
-        fetch('/add_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); document.getElementById('new-tag-name').value = ''; } else { alert(data.error); }
-        });
+        const data = await safeFetchJson('/add_tag', { method: 'POST', body: fd }, 'Unable to add tag. Please check server connection.');
+        if (!data) return;
+        if (data.status === 'success') {
+            ENV.tagsData = data.tags_data;
+            renderTags();
+            applyColors();
+            document.getElementById('new-tag-name').value = '';
+        } else {
+            alert(data.error);
+        }
     };
 
-    document.getElementById('f-update').onsubmit = function(e) {
+    document.getElementById('f-update').onsubmit = async function(e) {
         e.preventDefault(); const fd = new FormData(this); const markdownText = mde.value().trim(); const targetDate = document.getElementById('i-date').value;
         
         fd.set('blog_text', markdownText); let isBlog = false; if (markdownText.length > 0) { fd.set('has_blog', '1'); isBlog = true; }
         fd.set('tags', Array.from(document.querySelectorAll('input[name="tags"]:checked')).map(cb => cb.value).join(','));
 
-        fetch('/update', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.status === 'success') {
-                activeEl.className = `day ${activeEl.classList.contains('is-today')?'is-today':''} ${isBlog ? 'has-blog' : ''}`;
-                activeEl.dataset.tags = data.new_tags; activeEl.dataset.blog = data.has_blog; activeEl.dataset.snapshot = data.snapshot; 
-                
-                if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
-                ENV.logsData[targetDate].main = markdownText;
-                
-                applyColors(); closeEditor();
-            } else { alert(data.error); }
-        });
+        const data = await safeFetchJson('/update', { method: 'POST', body: fd }, 'Saving entry failed. The backend may be disconnected.');
+        if (!data) return;
+        if (data.status === 'success') {
+            activeEl.className = `day ${activeEl.classList.contains('is-today')?'is-today':''} ${isBlog ? 'has-blog' : ''}`;
+            activeEl.dataset.tags = data.new_tags; activeEl.dataset.blog = data.has_blog; activeEl.dataset.snapshot = data.snapshot;
+
+            if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
+            ENV.logsData[targetDate].main = markdownText;
+
+            applyColors(); closeEditor();
+        } else { alert(data.error); }
     };
 
-    document.getElementById('f-footnote').onsubmit = function(e) {
+    document.getElementById('f-footnote').onsubmit = async function(e) {
         e.preventDefault();
         const fd = new FormData();
         const text = fnMde.value().trim();
@@ -266,35 +330,34 @@ document.addEventListener('DOMContentLoaded', () => {
         fd.append('date', targetDate);
         fd.append('footnotes', text);
 
-        fetch('/update_footnote', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.status === 'success') {
-                if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
-                ENV.logsData[targetDate].footnotes = text;
-                closeFootnoteModal();
-                renderJournal(); 
-            }
-        });
+        const data = await safeFetchJson('/update_footnote', { method: 'POST', body: fd }, 'Saving footnotes failed. Please retry.');
+        if (data && data.status === 'success') {
+            if (!ENV.logsData[targetDate]) ENV.logsData[targetDate] = {main: '', footnotes: ''};
+            ENV.logsData[targetDate].footnotes = text;
+            closeFootnoteModal();
+            renderJournal();
+        }
     };
 });
 
-window.loadMonth = function(year, month) {
+window.loadMonth = async function(year, month) {
     closeEditor(); 
-    fetch(`/api/calendar?year=${year}&month=${month}`).then(r => r.json()).then(data => {
-        document.getElementById('month-title').innerText = `${data.month_name} ${data.year}`;
-        ENV.prevYear = data.prev_year; ENV.prevMonth = data.prev_month; ENV.nextYear = data.next_year; ENV.nextMonth = data.next_month;
-        let html = '';
-        data.cal_data.forEach(week => {
-            week.forEach(d => {
-                if (!d) { html += '<div class="day" style="visibility:hidden"></div>'; } else {
-                    let classes = `day ${d.is_today ? 'is-today' : ''} ${d.has_blog ? 'has-blog' : ''}`;
-                    let safeSnapshot = d.snapshot ? d.snapshot.replace(/"/g, '&quot;') : '{}';
-                    html += `<div class="${classes}" data-date="${d.date}" data-tags="${d.tags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${d.status}" onclick="openDay(this)"><div class="cell-paper"></div><span class="cell-content">${d.day}</span></div>`;
-                }
-            });
+    const data = await safeFetchJson(`/api/calendar?year=${year}&month=${month}`, {}, 'Calendar load failed. Server is unavailable.');
+    if (!data) return;
+    document.getElementById('month-title').innerText = `${data.month_name} ${data.year}`;
+    ENV.prevYear = data.prev_year; ENV.prevMonth = data.prev_month; ENV.nextYear = data.next_year; ENV.nextMonth = data.next_month;
+    let html = '';
+    data.cal_data.forEach(week => {
+        week.forEach(d => {
+            if (!d) { html += '<div class="day" style="visibility:hidden"></div>'; } else {
+                let classes = `day ${d.is_today ? 'is-today' : ''} ${d.has_blog ? 'has-blog' : ''}`;
+                let safeSnapshot = d.snapshot ? d.snapshot.replace(/"/g, '&quot;') : '{}';
+                html += `<div class="${classes}" data-date="${d.date}" data-tags="${d.tags}" data-snapshot="${safeSnapshot}" data-blog="${d.has_blog}" data-locked="${d.is_locked ? '1' : '0'}" data-status="${d.status}" onclick="openDay(this)"><div class="cell-paper"></div><span class="cell-content">${d.day}</span></div>`;
+            }
         });
-        const grid = document.getElementById('calendar'); grid.style.opacity = '0';
-        setTimeout(() => { grid.innerHTML = html; applyColors(); grid.style.opacity = '1'; }, 150);
     });
+    const grid = document.getElementById('calendar'); grid.style.opacity = '0';
+    setTimeout(() => { grid.innerHTML = html; applyColors(); grid.style.opacity = '1'; }, 150);
 }
 
 window.openDay = function(el) {
@@ -315,12 +378,24 @@ window.openDay = function(el) {
     setTimeout(() => { document.querySelector('#view-tracker').scrollTo({ top: document.getElementById('editor').offsetTop, behavior: 'smooth' }); }, 100);
 }
 
-window.deleteTag = function(tagName) {
+window.deleteTag = async function(tagName) {
     if(!confirm(`Archive '${tagName}'? Historical entries keep their color, but it will be removed from the menu.`)) return;
     const fd = new FormData(); fd.append('name', tagName);
-    fetch('/delete_tag', { method: 'POST', body: fd }).then(r => r.json()).then(data => { if(data.status === 'success') { ENV.tagsData = data.tags_data; renderTags(); applyColors(); } });
+    const data = await safeFetchJson('/delete_tag', { method: 'POST', body: fd }, 'Tag archive failed. Please check server connection.');
+    if (data && data.status === 'success') {
+        ENV.tagsData = data.tags_data;
+        renderTags();
+        applyColors();
+    }
 };
 
+/**
+ * Build the journal list from cached daily logs.
+ * The first non-empty Markdown line is promoted as the entry title, then
+ * the remaining body and optional footnotes are rendered to HTML via marked.
+ *
+ * @returns {void}
+ */
 window.renderJournal = function() {
     const container = document.getElementById('entries-container'); container.innerHTML = '';
     const validDates = Object.keys(ENV.logsData).sort((a,b) => b.localeCompare(a));
@@ -405,6 +480,11 @@ window.filterEntries = function() {
     document.querySelectorAll('.entry').forEach(entry => { entry.style.display = entry.dataset.searchtext.includes(query) ? 'block' : 'none'; });
 }
 
+/**
+ * Expand or collapse all journal entries in one action.
+ *
+ * @returns {void}
+ */
 window.toggleAll = function() {
     allExpanded = !allExpanded;
     document.querySelectorAll('.entry-content').forEach(c => { 

@@ -1,7 +1,7 @@
 import sqlite3
 
 # Connect to your Grimoire database
-conn = sqlite3.connect('database.db')
+conn = sqlite3.connect('database.db', timeout=10)
 cursor = conn.cursor()
 
 # Grab all the users
