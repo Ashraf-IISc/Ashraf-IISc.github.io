@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, g, render_template, request, redirect, url_for, session
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
@@ -36,8 +36,8 @@ def generate_tiered_pastels():
 
 HARMONIOUS_COLORS = generate_tiered_pastels()
 
-def get_db_connection():
-    """Create a SQLite connection configured for row-style access.
+def _create_db_connection():
+    """Create a configured SQLite connection.
 
     Args:
         None.
@@ -46,8 +46,23 @@ def get_db_connection():
         sqlite3.Connection: Database connection with Row row_factory enabled.
     """
     conn = sqlite3.connect('database.db', timeout=10)
-    conn.row_factory = sqlite3.Row 
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL;')
+    conn.execute('PRAGMA busy_timeout = 10000;')
     return conn
+
+def get_db():
+    """Return the current request's shared SQLite connection."""
+    if 'db' not in g:
+        g.db = _create_db_connection()
+    return g.db
+
+@app.teardown_appcontext
+def close_db(error):
+    """Close the request-scoped SQLite connection."""
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 def assign_permanent_colors(conn, user_id=None):
     """Assign stable colors to tags that do not yet have one.
@@ -86,16 +101,16 @@ def init_db():
     Returns:
         None: Creates tables/columns if missing and closes the connection.
     """
-    conn = get_db_connection()
-    conn.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS logs (user_id INTEGER, date TEXT, score INTEGER, has_blog INTEGER, blog_text TEXT, edit_count INTEGER DEFAULT 0, tags TEXT DEFAULT '', tags_snapshot TEXT DEFAULT '{}', PRIMARY KEY (user_id, date))''')
-    
-    try: conn.execute("ALTER TABLE logs ADD COLUMN footnotes TEXT DEFAULT ''")
-    except sqlite3.OperationalError: pass
-    
-    assign_permanent_colors(conn)
-    conn.commit()
-    conn.close()
+    with app.app_context():
+        conn = get_db()
+        conn.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS logs (user_id INTEGER, date TEXT, score INTEGER, has_blog INTEGER, blog_text TEXT, edit_count INTEGER DEFAULT 0, tags TEXT DEFAULT '', tags_snapshot TEXT DEFAULT '{}', PRIMARY KEY (user_id, date))''')
+        
+        try: conn.execute("ALTER TABLE logs ADD COLUMN footnotes TEXT DEFAULT ''")
+        except sqlite3.OperationalError: pass
+        
+        assign_permanent_colors(conn)
+        conn.commit()
 
 init_db()
 
@@ -110,7 +125,7 @@ def login():
         flask.Response: Login page render or redirect to tracker on success.
     """
     if request.method == 'POST':
-        user = get_db_connection().execute('SELECT * FROM users WHERE username = ?', (request.form['username'],)).fetchone()
+        user = get_db().execute('SELECT * FROM users WHERE username = ?', (request.form['username'],)).fetchone()
         if user and check_password_hash(user['password'], request.form['password']):
             session['user_id'] = user['id']
             return redirect(url_for('tracker'))
@@ -128,16 +143,17 @@ def register():
         flask.Response: Register page render or redirect to login on success.
     """
     if request.method == 'POST':
-        conn = get_db_connection()
+        conn = get_db()
         try:
             conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (request.form['username'], generate_password_hash(request.form['password'])))
-            conn.commit()
             user_id = conn.execute('SELECT id FROM users WHERE username = ?', (request.form['username'],)).fetchone()['id']
             conn.executemany('INSERT INTO tags (user_id, name, color, priority, active) VALUES (?, ?, ?, ?, ?)', [(user_id, 'Study', '', 10, 1), (user_id, 'Sleep', '', 8, 1), (user_id, 'Hobby', '', 5, 1)])
             assign_permanent_colors(conn, user_id)
-            conn.close()
+            conn.commit()
             return redirect(url_for('login'))
-        except sqlite3.IntegrityError: return render_template('auth.html', action='register', error='Username already exists.')
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return render_template('auth.html', action='register', error='Username already exists.')
     return render_template('auth.html', action='register')
 
 @app.route('/change_credentials', methods=['GET', 'POST'])
@@ -152,14 +168,16 @@ def change_credentials():
     """
     if 'user_id' not in session: return redirect(url_for('login'))
     if request.method == 'POST':
-        conn = get_db_connection()
+        conn = get_db()
         user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
         if user and user['username'] == request.form['old_username'] and check_password_hash(user['password'], request.form['old_password']):
             try:
                 conn.execute('UPDATE users SET username = ?, password = ? WHERE id = ?', (request.form['new_username'], generate_password_hash(request.form['new_password']), session['user_id']))
-                conn.commit(); conn.close()
+                conn.commit()
                 return redirect(url_for('tracker'))
-            except sqlite3.IntegrityError: return render_template('auth.html', action='change', error='New username already taken.')
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                return render_template('auth.html', action='change', error='New username already taken.')
         return render_template('auth.html', action='change', error='Old credentials incorrect.')
     return render_template('auth.html', action='change')
 
@@ -191,10 +209,9 @@ def tracker():
     year, month = request.args.get('year', today.year, int), request.args.get('month', today.month, int)
     today_str = today.strftime('%Y-%m-%d')
 
-    conn = get_db_connection()
+    conn = get_db()
     logs = conn.execute('SELECT * FROM logs WHERE user_id = ?', (user_id,)).fetchall()
     tags_data = get_tags_data(conn, user_id)
-    conn.close()
 
     log_dict = {l['date']: dict(l) for l in logs}
     cal_data = []
@@ -235,9 +252,8 @@ def api_calendar():
     year, month = request.args.get('year', today.year, int), request.args.get('month', today.month, int)
     today_str = today.strftime('%Y-%m-%d')
     
-    conn = get_db_connection()
+    conn = get_db()
     logs = conn.execute('SELECT date, tags, has_blog, tags_snapshot FROM logs WHERE user_id = ?', (user_id,)).fetchall()
-    conn.close()
     
     log_dict = {l['date']: dict(l) for l in logs}
     cal_data = []
@@ -276,7 +292,7 @@ def update_day():
     
     if date != today_str: return {"error": "Past entries are strictly sealed."}, 403
 
-    conn = get_db_connection()
+    conn = get_db()
     snapshot_json = json.dumps(get_tags_data(conn, user_id))
     
     conn.execute('''INSERT INTO logs (user_id, date, score, tags, has_blog, blog_text, tags_snapshot) 
@@ -285,7 +301,6 @@ def update_day():
                     tags_snapshot=excluded.tags_snapshot''', 
                     (user_id, date, request.form.get('tags', ''), 1 if 'has_blog' in request.form else 0, request.form['blog_text'], snapshot_json))
     conn.commit()
-    conn.close()
     return {"status": "success", "new_tags": request.form.get('tags', ''), "has_blog": 1 if 'has_blog' in request.form else 0, "snapshot": snapshot_json}, 200
 
 @app.route('/update_day_tags', methods=['POST'])
@@ -303,7 +318,7 @@ def update_day_tags():
     
     if date != today_str: return {"error": "Past entries are strictly sealed."}, 403
 
-    conn = get_db_connection()
+    conn = get_db()
     snapshot_json = json.dumps(get_tags_data(conn, user_id))
     
     existing = conn.execute('SELECT blog_text, has_blog FROM logs WHERE user_id=? AND date=?', (user_id, date)).fetchone()
@@ -315,7 +330,6 @@ def update_day_tags():
                     tags=excluded.tags, tags_snapshot=excluded.tags_snapshot''', 
                     (user_id, date, request.form.get('tags', ''), h_blog, b_text, snapshot_json))
     conn.commit()
-    conn.close()
     return {"status": "success", "new_tags": request.form.get('tags', ''), "snapshot": snapshot_json}, 200
 
 @app.route('/update_footnote', methods=['POST'])
@@ -331,12 +345,11 @@ def update_footnote():
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
     user_id, date, footnotes = session['user_id'], request.form['date'], request.form['footnotes']
     
-    conn = get_db_connection()
+    conn = get_db()
     conn.execute('''INSERT INTO logs (user_id, date, score, has_blog, footnotes) 
                     VALUES (?, ?, 0, 0, ?) ON CONFLICT(user_id, date) DO UPDATE SET 
                     footnotes=excluded.footnotes''', (user_id, date, footnotes))
     conn.commit()
-    conn.close()
     return {"status": "success", "footnotes": footnotes}, 200
 
 @app.route('/add_tag', methods=['POST'])
@@ -353,13 +366,12 @@ def add_tag():
     user_id, name = session['user_id'], request.form['name'].replace(',', '').strip()
     if not name: return {"error": "Name required"}, 400
     
-    conn = get_db_connection()
+    conn = get_db()
     min_prio = (conn.execute('SELECT MIN(priority) as m FROM tags WHERE user_id = ? AND active=1', (user_id,)).fetchone()['m'] or 100) - 1
     try: conn.execute('INSERT INTO tags (user_id, name, color, priority, active) VALUES (?, ?, "", ?, 1)', (user_id, name, min_prio))
     except sqlite3.IntegrityError: conn.execute('UPDATE tags SET active=1, priority=? WHERE user_id=? AND name=?', (min_prio, user_id, name))
     conn.commit(); assign_permanent_colors(conn, user_id)
     tags_data = get_tags_data(conn, user_id)
-    conn.close()
     return {"status": "success", "tags_data": tags_data}, 200
 
 @app.route('/update_tag_color', methods=['POST'])
@@ -373,9 +385,9 @@ def update_tag_color():
         tuple[dict, int]: JSON payload with updated tag dataset and status.
     """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
-    conn = get_db_connection()
+    conn = get_db()
     conn.execute('UPDATE tags SET color = ? WHERE user_id = ? AND name = ?', (request.form['color'], session['user_id'], request.form['name']))
-    conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
+    conn.commit(); tags_data = get_tags_data(conn, session['user_id'])
     return {"status": "success", "tags_data": tags_data}, 200
 
 @app.route('/reorder_tags', methods=['POST'])
@@ -389,9 +401,9 @@ def reorder_tags():
         dict: JSON-compatible dictionary with status and updated tags.
     """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
-    conn, max_prio = get_db_connection(), len(request.json.get('tags', []))
+    conn, max_prio = get_db(), len(request.json.get('tags', []))
     for i, name in enumerate(request.json.get('tags', [])): conn.execute('UPDATE tags SET priority = ? WHERE user_id = ? AND name = ?', (max_prio - i, session['user_id'], name))
-    conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
+    conn.commit(); tags_data = get_tags_data(conn, session['user_id'])
     return {"status": "success", "tags_data": tags_data}
 
 @app.route('/delete_tag', methods=['POST'])
@@ -405,9 +417,9 @@ def delete_tag():
         tuple[dict, int]: JSON payload with updated tag dataset and status.
     """
     if 'user_id' not in session: return {"error": "Unauthorized"}, 401
-    conn = get_db_connection()
+    conn = get_db()
     conn.execute('UPDATE tags SET active=0 WHERE user_id = ? AND name = ?', (session['user_id'], request.form['name']))
-    conn.commit(); tags_data = get_tags_data(conn, session['user_id']); conn.close()
+    conn.commit(); tags_data = get_tags_data(conn, session['user_id'])
     return {"status": "success", "tags_data": tags_data}, 200
 
 # --- THE DEAD DROP ENGINE ---
